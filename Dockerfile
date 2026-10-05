@@ -1,12 +1,12 @@
 # Dockerfile BASE (bootstrap): build estático multi-stage + runtime no-root.
 # El endurecimiento (distroless/optimización fina de capas, pinned digest,
-# build cache mounts) es ownership de la issue #8.
+# build cache mounts) es ownership de la issue #12.
 #
 # Requisito en runtime (fail-fast al arrancar): EXTRACTION_URL y
 # PERSISTENCE_URL deben proveerse con -e / --env-file.
 
 # ---- Stage 1: build ----
-FROM golang:1.22-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 
 # Capas de dependencias primero para aprovechar el cache de Docker.

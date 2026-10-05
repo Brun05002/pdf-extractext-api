@@ -1,7 +1,5 @@
 package core
 
-// FASE RED: tests que definen el contrato de Config antes de implementarlo.
-
 import (
 	"testing"
 

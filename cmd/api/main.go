@@ -15,7 +15,7 @@ func main() {
 	}
 
 	app := fiber.New(fiber.Config{
-		// Cero volcados a disco: Fiber usa buffers en memoria, límite duro por config.
+		// Límite duro en memoria; nunca se vuelca a disco.
 		BodyLimit: int(cfg.MaxFileSizeMB) * 1024 * 1024,
 	})
 

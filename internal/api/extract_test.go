@@ -1,16 +1,17 @@
 package api
 
-// FASE RED: contrato del endpoint POST /extract antes de implementarlo.
-
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
@@ -95,9 +96,42 @@ func TestExtract_ExceedsMaxSize(t *testing.T) {
 	client := new(MockExtractionClient)
 	app := newExtractApp(client, 1) // 1MB
 
-	big := []byte(strings.Repeat("x", 2*1024*1024)) // 2MB
-	resp, err := app.Test(netHttpRequest(t, big), -1)
+	// app.Test descarta el 413 cuando fasthttp rechaza el body: se usa un listener real.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, app.Shutdown())
+	})
+	go func() { _ = app.Listener(ln) }()
+
+	big := []byte(strings.Repeat("x", 2*1024*1024)) // 2MB
+	req := netHttpRequest(t, big)
+	req.URL.Scheme = "http"
+	req.URL.Host = ln.Addr().String()
+	req.RequestURI = "" // requerido por http.Client
+
+	// fasthttp responde 413 y cierra sin leer los 2MB: se lee la respuesta a nivel TCP crudo.
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	defer conn.Close()
+
+	writeErr := req.Write(conn)
+	resp, readErr := http.ReadResponse(bufio.NewReader(conn), req)
+	require.NoError(t, readErr, "el servidor debe responder 413 pese al cierre temprano")
+	defer resp.Body.Close()
+	if writeErr != nil {
+		// Solo se admite EPIPE/ECONNRESET por el cierre temprano del servidor.
+		var opErr *net.OpError
+		isReset := errors.Is(writeErr, syscall.EPIPE) ||
+			errors.Is(writeErr, syscall.ECONNRESET) ||
+			(errors.As(writeErr, &opErr) &&
+				(errors.Is(opErr.Err, syscall.EPIPE) ||
+					errors.Is(opErr.Err, syscall.ECONNRESET))) ||
+			strings.Contains(writeErr.Error(), "broken pipe") ||
+			strings.Contains(writeErr.Error(), "connection reset by peer")
+		require.True(t, isReset,
+			"el único error de escritura admisible es el cierre por rechazo del body, se obtuvo: %v", writeErr)
+	}
 
 	assert.Equal(t, fiber.StatusRequestEntityTooLarge, resp.StatusCode)
 	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything)

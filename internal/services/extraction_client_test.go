@@ -1,9 +1,8 @@
 package services
 
-// FASE RED: contrato del ExtractionClient con streaming real sobre io.Pipe.
-
 import (
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -32,7 +31,7 @@ func httpServerHandler(t *testing.T, expected string) http.HandlerFunc {
 		require.Equal(t, "application/octet-stream", r.Header.Get("Content-Type"))
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		require.Equal(t, expected, body, "el stream debe llegar íntegro y sin buffers fijos")
+		require.Equal(t, expected, string(body), "el stream debe llegar íntegro y sin buffers fijos")
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"content":"texto extraido","page_count":3}`))
@@ -54,7 +53,7 @@ func TestExtractionClient_UpstreamError(t *testing.T) {
 
 func TestExtractionClient_Timeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(500 * time.Millisecond) // upstream lento (congestión)
+		time.Sleep(500 * time.Millisecond) // upstream lento
 		w.Write([]byte(`{"content":"x","page_count":1}`))
 	}))
 	defer server.Close()

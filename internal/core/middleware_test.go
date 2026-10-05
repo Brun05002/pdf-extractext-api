@@ -1,7 +1,5 @@
 package core
 
-// FASE RED: tests del middleware de Request-ID antes de implementarlo.
-
 import (
 	"io"
 	"net/http"

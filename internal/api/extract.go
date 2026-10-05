@@ -1,7 +1,5 @@
 package api
 
-// FASE GREEN: handler POST /extract con streaming directo al ExtractionClient.
-
 import (
 	"path/filepath"
 	"strings"
@@ -28,15 +26,13 @@ func (h *extractHandler) handle(c *fiber.Ctx) error {
 		})
 	}
 
-	// Fail-fast: solo PDFs.
 	if !isPDF(fileHeader.Filename) {
 		return c.Status(fiber.StatusUnsupportedMediaType).JSON(fiber.Map{
 			"error": "solo se aceptan archivos PDF",
 		})
 	}
 
-	// El límite de tamaño ya es enforced por Fiber BodyLimit (memoria, cero disco).
-
+	// El tamaño ya lo limita Fiber BodyLimit.
 	file, err := fileHeader.Open()
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
@@ -45,7 +41,7 @@ func (h *extractHandler) handle(c *fiber.Ctx) error {
 	}
 	defer file.Close()
 
-	// multipart.File implementa io.Reader: stream directo al upstream.
+	// multipart.File es io.Reader: stream directo al upstream.
 	result, err := h.client.Extract(c.Context(), file)
 	if err != nil {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{

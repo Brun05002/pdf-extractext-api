@@ -1,7 +1,5 @@
 package core
 
-// FASE GREEN: implementación mínima para pasar los tests.
-
 import (
 	"fmt"
 	"os"

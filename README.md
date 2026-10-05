@@ -4,9 +4,9 @@ Microservicio **API de borde** del sistema pdf-extractext. Recibe archivos PDF
 por HTTP, aplica los límites del borde (tamaño máximo del cuerpo, validación de
 formato) y delega la extracción de texto en `pdf-extractext-extractor`. La
 orquestación completa (extracción + persistencia en un solo endpoint público)
-está planificada como issue #6 — ver [Roadmap](#roadmap).
+está planificada como issue #7 — ver [Roadmap](#roadmap).
 
-- **Stack:** Go 1.22 + Fiber v2 (fasthttp). Streaming 100% en memoria: cero
+- **Stack:** Go 1.27 + Fiber v2 (fasthttp). Streaming 100% en memoria: cero
   volcados a disco en el hot path.
 - **Estado:** bootstrap en desarrollo (TDD). No desplegable como pipeline
   completo todavía — ver [Limitaciones](#limitaciones-actuales).
@@ -35,7 +35,7 @@ el proceso no levanta.
 |---|---|---|---|
 | `PORT` | No | `:3000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
 | `EXTRACTION_URL` | **Sí** | — | URL base del microservicio de extracción. Ej.: `http://extraction:8001` |
-| `PERSISTENCE_URL` | **Sí** | — | URL base del microservicio de persistencia. Ej.: `http://persistence:8002`. Obligatoria al arranque, **aún sin consumo** (issue #3) |
+| `PERSISTENCE_URL` | **Sí** | — | URL base del microservicio de persistencia. Ej.: `http://persistence:8002`. Obligatoria al arranque, **aún sin consumo** (issue #6) |
 | `MAX_FILE_SIZE_MB` | No | `20` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO (fronteras + headers + archivo) |
 
 ## Endpoints
@@ -52,7 +52,7 @@ Probe informal (única ruta viva en el binario actual).
 
 Implementado y cubierto por tests, pero **todavía no registrado en
 `cmd/api/main.go`**: no está vivo en el binario. Su registro y su contrato
-definitivo se deciden en la issue #6 (orquestador `POST /upload-pdf`), que
+definitivo se deciden en la issue #7 (orquestador `POST /upload-pdf`), que
 puede reemplazar esta ruta.
 
 - **Request:** `multipart/form-data`, campo `file`, solo extensión `.pdf`.
@@ -70,7 +70,7 @@ puede reemplazar esta ruta.
 | 502 | Fallo del upstream de extracción |
 
 El formato de error actual (`{"error": "..."}`, en español) es **provisional**:
-la traducción/estandarización global de errores llega con la issue #7.
+la traducción/estandarización global de errores llega con la issue #8.
 
 ## Limitaciones actuales
 
@@ -78,48 +78,44 @@ Registro honesto de deuda técnica; cada ítem referencia la issue que lo
 resuelve.
 
 1. **`POST /extract` no está cableado** — `RegisterExtract` nunca se invoca en
-   `main.go`; falta también el timeout del cliente HTTP. → issue #6.
+   `main.go`; falta también el timeout del cliente HTTP. → issue #7.
 2. **`PERSISTENCE_URL` es requisito muerto** — obligatoria al arranque pero
-   ningún código la consume. → issue #3 (cliente de persistencia).
+   ningún código la consume. → issue #6 (cliente de persistencia).
 3. **Contrato con el extractor incompleto** — hoy la API envía
    `application/octet-stream` y espera `{content, page_count}`; el extractor
    (según su plan de migración, contrato C1) exige `multipart/form-data` campo
    `file` y devuelve `{filename, extracted_text, checksum}`. La alineación se
-   resuelve en el orquestador. → issue #6.
+   resuelve en el orquestador. → issue #7.
 4. **`X-Request-ID` sin explotar** — el middleware lo genera/propaga en la
-   respuesta, pero no se loguea ni se reenvía al upstream. → junto con #6/#7.
+   respuesta, pero no se loguea ni se reenvía al upstream. → junto con #7/#8.
 5. **Validación de PDF solo por extensión** — no hay chequeo de magic bytes
    (`%PDF-`). → endurecimiento posterior.
 6. **Sin endpoints de lectura/escritura** de documentos persistidos. → issues
-   #4 (GET) y #5 (PATCH / DELETE).
-7. **Sin logging estructurado, métricas ni tracing.** → pendiente de equipo.
+   #10 (GET) y #11 (PATCH / DELETE).
+7. **Sin logging estructurado, métricas ni tracing.** → issue #13.
 8. **Módulo con placeholder** (`github.com/tu-usuario/...` en `go.mod`).
-9. **8 de 15 tests no compilan** (preexistente, detectado al verificar): el
-   archivo `internal/services/extraction_client_test.go` usa `t.Context()`
-   (API de Go 1.24, pero el módulo declara Go 1.22) y le falta el import
-   `net/http`; además `go.sum` no tiene la entrada de
-   `github.com/stretchr/objx` (requerida por `testify/mock`), lo que rompe
-   `internal/api`. Solo `internal/core` (7 tests) pasa.
-
+   → issue #4.
 ## Roadmap
 
 | Issue | Descripción | Estado |
 |---|---|---|
-| #3 | Cliente de persistencia (CRUD HTTP hacia la base) | Pendiente |
-| #4 | Endpoints de lectura (GET) | Pendiente |
-| #5 | Endpoints de escritura (PATCH / DELETE) | Pendiente |
-| #6 | Orquestador `POST /upload-pdf` (combina extraction + persistence) | Pendiente |
-| #7 | Traducción global de errores | Pendiente |
-| #8 | Docker multi-stage para Go (endurecimiento de la base) | Base hecha, refino pendiente |
+| #4 | Renombrar módulo Go a nombre definitivo | Pendiente |
+| #5 | Integración Continua (CI) y automatización | Pendiente |
+| #6 | Cliente de persistencia (CRUD HTTP hacia la base) | Pendiente |
+| #7 | Orquestador `POST /upload-pdf` (combina extraction + persistence) | Pendiente |
+| #8 | Traducción global de errores | Pendiente |
+| #9 | Documentar especificación OpenAPI | Pendiente |
+| #10 | Endpoints de lectura (GET) | Pendiente |
+| #11 | Endpoints de escritura (PATCH / DELETE) | Pendiente |
+| #12 | Docker multi-stage para Go (endurecimiento de la base) | Base hecha, refino pendiente |
+| #13 | Housekeeping y observabilidad mínima | Pendiente |
 
 ## Desarrollo
 
-Requisitos: Go 1.22+.
+Requisitos: Go 1.27+.
 
 ```bash
-# Tests: 15 escritos. Hoy SOLO internal/core (7) corre en verde;
-# internal/api e internal/services no compilan por errores preexistentes
-# (ver Limitaciones #9).
+# Tests: 15 escritos, todos en verde.
 go test ./...
 
 # Ejecución local (falla sin las obligatorias, por diseño)
@@ -132,7 +128,7 @@ go run ./cmd/api
 
 El `Dockerfile` es una **base bootstrap**: multi-stage con build estático
 (`CGO_ENABLED=0`, `-trimpath`), usuario no-root y `HEALTHCHECK` sobre `GET /`.
-El endurecimiento completo es ownership de la issue #8.
+El endurecimiento completo es ownership de la issue #12.
 
 ```bash
 docker build -t pdf-extractext-api:bootstrap .
@@ -152,7 +148,7 @@ Dentro de las redes del compose de `pdf-extractext-infrastructure`, los hosts
 pdf-extractext-api/
 ├── cmd/
 │   └── api/
-│       └── main.go            # entrypoint: config + GET / (wiring de /extract pendiente, #6)
+    │       └── main.go            # entrypoint: config + GET / (wiring de /extract pendiente, #7)
 └── internal/
     ├── api/
     │   ├── root.go            # GET /
