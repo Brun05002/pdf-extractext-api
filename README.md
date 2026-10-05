@@ -48,15 +48,13 @@ Probe informal (única ruta viva en el binario actual).
 { "service": "pdf-extractext-api", "status": "ok" }
 ```
 
-### `POST /extract` — ⚠️ PROVISIONAL
+### `POST /extract`
 
-Implementado y cubierto por tests, pero **todavía no registrado en
-`cmd/api/main.go`**: no está vivo en el binario. Su registro y su contrato
-definitivo se deciden en la issue #7 (orquestador `POST /upload-pdf`), que
-puede reemplazar esta ruta.
+Vivo en el binario. Recibe el PDF y lo reenvía al extractor como
+`multipart/form-data` (contrato C1, campo `file`) streameando en memoria.
 
 - **Request:** `multipart/form-data`, campo `file`, solo extensión `.pdf`.
-- **Response 200 (contrato interno actual):**
+- **Response 200 (contrato TP):**
 
 ```json
 { "content": "<texto extraído>", "page_count": 42 }
@@ -77,24 +75,15 @@ la traducción/estandarización global de errores llega con la issue #8.
 Registro honesto de deuda técnica; cada ítem referencia la issue que lo
 resuelve.
 
-1. **`POST /extract` no está cableado** — `RegisterExtract` nunca se invoca en
-   `main.go`; falta también el timeout del cliente HTTP. → issue #7.
-2. **`PERSISTENCE_URL` es requisito muerto** — obligatoria al arranque pero
+1. **`PERSISTENCE_URL` es requisito muerto** — obligatoria al arranque pero
    ningún código la consume. → issue #6 (cliente de persistencia).
-3. **Contrato con el extractor incompleto** — hoy la API envía
-   `application/octet-stream` y espera `{content, page_count}`; el extractor
-   (según su plan de migración, contrato C1) exige `multipart/form-data` campo
-   `file` y devuelve `{filename, extracted_text, checksum}`. La alineación se
-   resuelve en el orquestador. → issue #7.
-4. **`X-Request-ID` sin explotar** — el middleware lo genera/propaga en la
+2. **`X-Request-ID` sin explotar** — el middleware lo genera/propaga en la
    respuesta, pero no se loguea ni se reenvía al upstream. → junto con #7/#8.
-5. **Validación de PDF solo por extensión** — no hay chequeo de magic bytes
+3. **Validación de PDF solo por extensión** — no hay chequeo de magic bytes
    (`%PDF-`). → endurecimiento posterior.
-6. **Sin endpoints de lectura/escritura** de documentos persistidos. → issues
+4. **Sin endpoints de lectura/escritura** de documentos persistidos. → issues
    #10 (GET) y #11 (PATCH / DELETE).
-7. **Sin logging estructurado, métricas ni tracing.** → issue #13.
-8. **Módulo con placeholder** (`github.com/tu-usuario/...` en `go.mod`).
-   → issue #4.
+5. **Sin logging estructurado, métricas ni tracing.** → issue #13.
 ## Roadmap
 
 | Issue | Descripción | Estado |

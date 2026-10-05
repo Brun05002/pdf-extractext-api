@@ -2,10 +2,12 @@ package main
 
 import (
 	"log"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/pdf-extractext/api/internal/api"
 	"github.com/pdf-extractext/api/internal/core"
+	"github.com/pdf-extractext/api/internal/services"
 )
 
 func main() {
@@ -21,6 +23,10 @@ func main() {
 
 	app.Use(core.RequestID())
 	api.RegisterRoot(app)
+
+	// Timeout estricto: backpressure contra un upstream lento.
+	extraction := services.NewHTTPExtractionClient(cfg.ExtractionURL, 30*time.Second)
+	api.RegisterExtract(app, extraction, cfg.MaxFileSizeMB)
 
 	log.Fatal(app.Listen(cfg.Port))
 }
