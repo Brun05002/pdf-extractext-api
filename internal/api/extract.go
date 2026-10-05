@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/tu-usuario/pdf-extractext-api/internal/services"
+	"github.com/pdf-extractext/api/internal/services"
 )
 
 type extractHandler struct {

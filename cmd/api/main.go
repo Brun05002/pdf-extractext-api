@@ -4,8 +4,8 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/tu-usuario/pdf-extractext-api/internal/api"
-	"github.com/tu-usuario/pdf-extractext-api/internal/core"
+	"github.com/pdf-extractext/api/internal/api"
+	"github.com/pdf-extractext/api/internal/core"
 )
 
 func main() {

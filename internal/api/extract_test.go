@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/tu-usuario/pdf-extractext-api/internal/services"
+	"github.com/pdf-extractext/api/internal/services"
 )
 
 // MockExtractionClient simula el microservicio de extracción.
