@@ -1,7 +1,5 @@
 package services
 
-// FASE GREEN: implementación mínima con streaming 100% en memoria.
-
 import (
 	"context"
 	"encoding/json"
@@ -11,7 +9,7 @@ import (
 	"time"
 )
 
-// ExtractionResult es el contrato devuelto por el servicio de extracción.
+// ExtractionResult es la respuesta del servicio de extracción.
 type ExtractionResult struct {
 	Content   string `json:"content"`
 	PageCount int    `json:"page_count"`
@@ -22,8 +20,7 @@ type ExtractionClient interface {
 	Extract(ctx context.Context, body io.Reader) (*ExtractionResult, error)
 }
 
-// HTTPExtractionClient envía el stream directo al upstream sin buffers
-// intermedios ni volcados a disco. Timeout estricto como backpressure.
+// HTTPExtractionClient envía el stream al upstream con timeout estricto.
 type HTTPExtractionClient struct {
 	baseURL string
 	client  *http.Client

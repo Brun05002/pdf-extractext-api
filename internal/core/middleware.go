@@ -1,7 +1,5 @@
 package core
 
-// FASE GREEN: middleware de Request-ID (propagación o UUID nuevo).
-
 import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"

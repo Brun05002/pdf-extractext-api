@@ -1,6 +1,6 @@
 module github.com/pdf-extractext/api
 
-go 1.22.2
+go 1.27.1
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.15
