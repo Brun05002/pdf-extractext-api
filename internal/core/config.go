@@ -16,7 +16,7 @@ type Config struct {
 func LoadConfig() (*Config, error) {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = ":3000"
+		port = ":8000"
 	}
 
 	extractionURL := os.Getenv("EXTRACTION_URL")

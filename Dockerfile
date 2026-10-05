@@ -25,12 +25,12 @@ WORKDIR /app
 
 COPY --from=build /out/api /usr/local/bin/api
 
-# Puerto por defecto de la app (PORT=:3000).
-EXPOSE 3000
+# Puerto por defecto de la app (PORT=:8000).
+EXPOSE 8000
 
 # Probe informal sobre GET / (única ruta viva hoy en el binario).
-# ${PORT} conserva el formato ":3000" que usa la app.
+# ${PORT} conserva el formato ":8000" que usa la app.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -q -O /dev/null "http://127.0.0.1${PORT:-:3000}/" || exit 1
+  CMD wget -q -O /dev/null "http://127.0.0.1${PORT:-:8000}/" || exit 1
 
 ENTRYPOINT ["api"]

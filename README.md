@@ -17,7 +17,7 @@ está planificada como issue #7 — ver [Roadmap](#roadmap).
 Traefik (:80)                        red `services`
    │
    ▼
-pdf-extractext-api (:3000)
+pdf-extractext-api (:8000)
    ├──► extraction  (:8001)          extracción de texto (Python/PyMuPDF)
    └──► persistence (:8002) ──► MongoDB (:27017)   red `data`
 ```
@@ -33,7 +33,7 @@ el proceso no levanta.
 
 | Variable | Requerida | Default | Descripción |
 |---|---|---|---|
-| `PORT` | No | `:3000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
+| `PORT` | No | `:8000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
 | `EXTRACTION_URL` | **Sí** | — | URL base del microservicio de extracción. Ej.: `http://extraction:8001` |
 | `PERSISTENCE_URL` | **Sí** | — | URL base del microservicio de persistencia. Ej.: `http://persistence:8002`. Obligatoria al arranque, **aún sin consumo** (issue #6) |
 | `MAX_FILE_SIZE_MB` | No | `20` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO (fronteras + headers + archivo) |
@@ -133,7 +133,7 @@ El endurecimiento completo es ownership de la issue #12.
 ```bash
 docker build -t pdf-extractext-api:bootstrap .
 
-docker run --rm -p 3000:3000 \
+docker run --rm -p 8000:8000 \
   -e EXTRACTION_URL=http://extraction:8001 \
   -e PERSISTENCE_URL=http://persistence:8002 \
   pdf-extractext-api:bootstrap
