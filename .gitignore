@@ -1,0 +1,19 @@
+# Binarios compilados
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+/api
+
+# Archivos de entorno (secretos, nunca al repo)
+.env
+
+# Cobertura de tests
+*.out
+
+# IDEs y editores
+.idea/
+.vscode/
+*.swp

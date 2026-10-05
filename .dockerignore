@@ -1,0 +1,13 @@
+# Nunca entra a la imagen: secretos e historia
+.env
+.git
+.gitignore
+
+# Documentación: no se necesita para compilar
+*.md
+
+# Artefactos locales
+*.out
+*.test
+.idea/
+.vscode/
