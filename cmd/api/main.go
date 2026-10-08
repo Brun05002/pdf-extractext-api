@@ -19,6 +19,8 @@ func main() {
 	app := fiber.New(fiber.Config{
 		// Límite duro en memoria; nunca se vuelca a disco.
 		BodyLimit: int(cfg.MaxFileSizeMB) * 1024 * 1024,
+		// Traducción global de errores al formato estándar {"code","message"}.
+		ErrorHandler: api.CustomErrorHandler,
 	})
 
 	app.Use(core.RequestID())
