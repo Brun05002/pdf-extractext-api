@@ -26,8 +26,8 @@ type MockExtractionClient struct {
 	mock.Mock
 }
 
-func (m *MockExtractionClient) Extract(ctx context.Context, filename string, body io.Reader) (*services.ExtractionResult, error) {
-	args := m.Called(ctx, filename, body)
+func (m *MockExtractionClient) Extract(ctx context.Context, requestID, filename string, body io.Reader) (*services.ExtractionResult, error) {
+	args := m.Called(ctx, requestID, filename, body)
 	if result, ok := args.Get(0).(*services.ExtractionResult); ok {
 		return result, args.Error(1)
 	}
@@ -57,7 +57,7 @@ func multipartRequest(t *testing.T, field, filename string, content []byte) *htt
 
 func TestExtract_OK_StreamsToClient(t *testing.T) {
 	client := new(MockExtractionClient)
-	client.On("Extract", mock.Anything, "documento.pdf", mock.Anything).
+	client.On("Extract", mock.Anything, mock.Anything, "documento.pdf", mock.Anything).
 		Return(&services.ExtractionResult{Content: "texto extraido", PageCount: 3}, nil)
 
 	app := newExtractApp(client, 5)
@@ -78,7 +78,7 @@ func TestExtract_RejectsNonPDF(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusUnsupportedMediaType, resp.StatusCode)
-	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything, mock.Anything)
+	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestExtract_MissingFile(t *testing.T) {
@@ -89,7 +89,7 @@ func TestExtract_MissingFile(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
-	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything, mock.Anything)
+	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestExtract_ExceedsMaxSize(t *testing.T) {
@@ -134,7 +134,7 @@ func TestExtract_ExceedsMaxSize(t *testing.T) {
 	}
 
 	assert.Equal(t, fiber.StatusRequestEntityTooLarge, resp.StatusCode)
-	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything, mock.Anything)
+	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func netHttpRequest(t *testing.T, content []byte) *http.Request {
@@ -154,7 +154,7 @@ func netHttpRequest(t *testing.T, content []byte) *http.Request {
 
 func TestExtract_UpstreamError(t *testing.T) {
 	client := new(MockExtractionClient)
-	client.On("Extract", mock.Anything, mock.Anything, mock.Anything).
+	client.On("Extract", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, errors.New("extraction upstream: timeout"))
 
 	app := newExtractApp(client, 5)

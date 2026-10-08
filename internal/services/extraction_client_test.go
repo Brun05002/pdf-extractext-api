@@ -20,7 +20,7 @@ func TestExtractionClient_StreamsBodyAndParsesResponse(t *testing.T) {
 
 	client := NewHTTPExtractionClient(server.URL, 3*time.Second)
 
-	result, err := client.Extract(t.Context(), "informe.pdf", strings.NewReader(payload))
+	result, err := client.Extract(t.Context(), "test-rid", "informe.pdf", strings.NewReader(payload))
 	require.NoError(t, err)
 	assert.Equal(t, "texto extraido", result.Content)
 	assert.Equal(t, 3, result.PageCount)
@@ -52,7 +52,7 @@ func TestExtractionClient_UpstreamError(t *testing.T) {
 
 	client := NewHTTPExtractionClient(server.URL, 3*time.Second)
 
-	_, err := client.Extract(t.Context(), "doc.pdf", strings.NewReader("pdf"))
+	_, err := client.Extract(t.Context(), "test-rid", "doc.pdf", strings.NewReader("pdf"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "extraction upstream")
 }
@@ -66,6 +66,6 @@ func TestExtractionClient_Timeout(t *testing.T) {
 
 	client := NewHTTPExtractionClient(server.URL, 50*time.Millisecond)
 
-	_, err := client.Extract(t.Context(), "doc.pdf", strings.NewReader("pdf"))
+	_, err := client.Extract(t.Context(), "test-rid", "doc.pdf", strings.NewReader("pdf"))
 	require.Error(t, err, "el timeout estricto debe cortar goroutines colgadas")
 }

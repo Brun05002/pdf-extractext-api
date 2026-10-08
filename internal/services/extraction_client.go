@@ -18,7 +18,7 @@ type ExtractionResult struct {
 
 // ExtractionClient abstrae la comunicación con el microservicio de extracción.
 type ExtractionClient interface {
-	Extract(ctx context.Context, filename string, body io.Reader) (*ExtractionResult, error)
+	Extract(ctx context.Context, requestID, filename string, body io.Reader) (*ExtractionResult, error)
 }
 
 // HTTPExtractionClient envía el stream al upstream con timeout estricto.
@@ -36,7 +36,7 @@ func NewHTTPExtractionClient(baseURL string, timeout time.Duration) *HTTPExtract
 
 // Extract envía el PDF como multipart/form-data (contrato C1 del extractor,
 // campo "file") streameando por io.Pipe: el cuerpo nunca se materializa entero.
-func (c *HTTPExtractionClient) Extract(ctx context.Context, filename string, body io.Reader) (*ExtractionResult, error) {
+func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename string, body io.Reader) (*ExtractionResult, error) {
 	pr, pw := io.Pipe()
 	writer := multipart.NewWriter(pw)
 	go func() {
@@ -55,6 +55,9 @@ func (c *HTTPExtractionClient) Extract(ctx context.Context, filename string, bod
 		return nil, fmt.Errorf("construir request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if requestID != "" {
+		req.Header.Set("X-Request-ID", requestID)
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {

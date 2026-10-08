@@ -42,7 +42,7 @@ func (h *extractHandler) handle(c *fiber.Ctx) error {
 	defer file.Close()
 
 	// multipart.File es io.Reader: stream directo al upstream.
-	result, err := h.client.Extract(c.Context(), fileHeader.Filename, file)
+	result, err := h.client.Extract(c.Context(), c.Get("X-Request-ID"), fileHeader.Filename, file)
 	if err != nil {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
 			"error": "fallo en el servicio de extracción",
