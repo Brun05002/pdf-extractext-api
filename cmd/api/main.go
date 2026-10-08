@@ -1,7 +1,8 @@
 package main
 
 import (
-	"log"
+	"log/slog"
+	"os"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,9 +12,13 @@ import (
 )
 
 func main() {
+	// Logging estructurado JSON por defecto para todo el proceso.
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
 	cfg, err := core.LoadConfig()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		slog.Error("configuración inválida", "error", err)
+		os.Exit(1)
 	}
 
 	app := fiber.New(fiber.Config{
@@ -34,5 +39,9 @@ func main() {
 	persistence := services.NewHTTPPersistenceClient(cfg.PersistenceURL, 10*time.Second)
 	api.RegisterDocuments(app, persistence)
 
-	log.Fatal(app.Listen(cfg.Port))
+	slog.Info("iniciando servidor", "puerto", cfg.Port)
+	if err := app.Listen(cfg.Port); err != nil {
+		slog.Error("el servidor terminó con error", "error", err)
+		os.Exit(1)
+	}
 }
