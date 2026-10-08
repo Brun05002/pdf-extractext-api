@@ -1,0 +1,22 @@
+services:
+  api:
+    build: .
+    image: pdf-extractext/api:latest
+    restart: unless-stopped
+    environment:
+      PORT: ":8000"
+      EXTRACTION_URL: ${EXTRACTION_URL:?definir EXTRACTION_URL}
+      PERSISTENCE_URL: ${PERSISTENCE_URL:?definir PERSISTENCE_URL}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-20}
+    networks:
+      - cabras-net
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.pdf-extractext-api.rule: "PathPrefix(`/`)"
+      traefik.http.routers.pdf-extractext-api.entrypoints: "web"
+      traefik.http.services.pdf-extractext-api.loadbalancer.server.port: "8000"
+      traefik.docker.network: "cabras-net"
+
+networks:
+  cabras-net:
+    external: true
