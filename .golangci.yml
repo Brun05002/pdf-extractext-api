@@ -1,0 +1,25 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - gosec
+    - gocritic
+
+linters-settings:
+  govet:
+    enable-all: true
+  gosec:
+    excludes:
+      - G104 # auditado por errcheck
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
