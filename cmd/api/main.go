@@ -31,5 +31,8 @@ func main() {
 	api.RegisterExtract(app, extraction, cfg.MaxFileSizeMB)
 	api.RegisterUploadPDF(app, extraction)
 
+	persistence := services.NewHTTPPersistenceClient(cfg.PersistenceURL, 10*time.Second)
+	api.RegisterDocuments(app, persistence)
+
 	log.Fatal(app.Listen(cfg.Port))
 }
