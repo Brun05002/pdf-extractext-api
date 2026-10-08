@@ -92,6 +92,62 @@ func TestFindAll_OK(t *testing.T) {
 	assert.Equal(t, "doc-1", docs[0].ID)
 }
 
+func TestUpdate_OK(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		assert.Equal(t, "/documents/doc-1", r.URL.Path)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		var doc Document
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&doc))
+		assert.Equal(t, "renombrado.pdf", doc.Filename)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(Document{ID: "doc-1", Filename: doc.Filename, PageCount: 3})
+	}))
+
+	updated, err := client.Update(context.Background(), "doc-1", &Document{Filename: "renombrado.pdf"})
+	require.NoError(t, err)
+	assert.Equal(t, "doc-1", updated.ID)
+	assert.Equal(t, "renombrado.pdf", updated.Filename)
+}
+
+func TestUpdate_NotFound(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	_, err := client.Update(context.Background(), "inexistente", &Document{Filename: "x.pdf"})
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestUpdate_Conflict(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	}))
+
+	_, err := client.Update(context.Background(), "doc-1", &Document{Filename: "duplicado.pdf"})
+	assert.ErrorIs(t, err, ErrConflict)
+}
+
+func TestDelete_NoContent(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodDelete, r.Method)
+		assert.Equal(t, "/documents/doc-1", r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	require.NoError(t, client.Delete(context.Background(), "doc-1"))
+}
+
+func TestDelete_NotFound(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	assert.ErrorIs(t, client.Delete(context.Background(), "inexistente"), ErrNotFound)
+}
+
 func TestFindAll_UpstreamError(t *testing.T) {
 	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)

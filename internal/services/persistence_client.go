@@ -29,6 +29,8 @@ type PersistenceRepository interface {
 	Save(ctx context.Context, doc *Document) (*Document, error)
 	FindByID(ctx context.Context, id string) (*Document, error)
 	FindAll(ctx context.Context) ([]*Document, error)
+	Update(ctx context.Context, id string, doc *Document) (*Document, error)
+	Delete(ctx context.Context, id string) error
 }
 
 // HTTPPersistenceClient implementa PersistenceRepository via HTTP/JSON.
@@ -102,6 +104,66 @@ func (c *HTTPPersistenceClient) FindByID(ctx context.Context, id string) (*Docum
 		return nil, fmt.Errorf("decodificar respuesta: %w", err)
 	}
 	return &doc, nil
+}
+
+// Update reemplaza campos de un documento (PATCH /documents/{id}).
+// 404 -> ErrNotFound, 409 -> ErrConflict (unicidad/checksum).
+func (c *HTTPPersistenceClient) Update(ctx context.Context, id string, doc *Document) (*Document, error) {
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("serializar documento: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.baseURL+"/documents/"+id, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("construir request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("persistence upstream: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNotFound:
+		return nil, ErrNotFound
+	case http.StatusConflict:
+		return nil, ErrConflict
+	case http.StatusOK:
+		// continúa a la decodificación
+	default:
+		return nil, fmt.Errorf("persistence upstream respondió status %d", resp.StatusCode)
+	}
+
+	var updated Document
+	if err := json.NewDecoder(resp.Body).Decode(&updated); err != nil {
+		return nil, fmt.Errorf("decodificar respuesta: %w", err)
+	}
+	return &updated, nil
+}
+
+// Delete elimina un documento (DELETE /documents/{id}). 404 -> ErrNotFound.
+func (c *HTTPPersistenceClient) Delete(ctx context.Context, id string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/documents/"+id, nil)
+	if err != nil {
+		return fmt.Errorf("construir request: %w", err)
+	}
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("persistence upstream: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return ErrNotFound
+	}
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("persistence upstream respondió status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // FindAll lista todos los documentos (GET /documents).
