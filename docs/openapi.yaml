@@ -1,0 +1,182 @@
+openapi: 3.0.3
+
+info:
+  title: PDF ExtracText API
+  version: 1.0.0
+  description: |
+    Microservicio orquestador del Proyecto Cabras. Recibe archivos PDF vía
+    multipart/form-data, los reenvía en streaming al microservicio de
+    extracción y devuelve el texto extraído al cliente.
+
+    Todos los errores siguen el formato estándar `ErrorResponse`.
+    El header `X-Request-ID` se propaga a los servicios internos y aparece
+    en las respuestas de error para facilitar la trazabilidad.
+
+servers:
+  - url: http://localhost:8000
+    description: Entorno local
+
+paths:
+  /:
+    get:
+      summary: Health check del servicio
+      operationId: getRoot
+      tags:
+        - health
+      responses:
+        "200":
+          description: El servicio está operativo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RootResponse"
+
+  /upload-pdf:
+    post:
+      summary: Sube un PDF y devuelve el texto extraído
+      description: |
+        Recibe un archivo PDF, lo reenvía al microservicio de extracción
+        bajo un timeout estricto de 30 segundos y devuelve el resultado.
+        El archivo se procesa en streaming; su tamaño máximo está limitado
+        por `MAX_FILE_SIZE_MB` (20 MB por defecto).
+      operationId: uploadPdf
+      tags:
+        - extraction
+      parameters:
+        - name: X-Request-ID
+          in: header
+          required: false
+          description: Identificador de correlación. Si no se envía, el servidor genera uno.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Archivo PDF a procesar.
+      responses:
+        "200":
+          description: Extracción exitosa.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractionResponse"
+        "400":
+          description: Falta el campo multipart `file` o la petición es inválida.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: BAD_REQUEST
+                message: se requiere el campo multipart 'file'
+        "413":
+          description: El archivo excede el tamaño máximo permitido.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: REQUEST_TOO_LARGE
+                message: el archivo excede el tamaño máximo permitido
+        "415":
+          description: El archivo no es un PDF.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: UNSUPPORTED_MEDIA_TYPE
+                message: solo se aceptan archivos PDF
+        "500":
+          description: Error interno no tipificado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: INTERNAL_ERROR
+                message: error interno del servidor
+        "502":
+          description: El servicio de extracción falló o devolvió una respuesta inválida.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: BAD_GATEWAY
+                message: fallo en el servicio de extracción
+        "504":
+          description: El servicio de extracción excedió el timeout de 30 segundos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: GATEWAY_TIMEOUT
+                message: el servicio de extracción excedió el tiempo límite
+
+components:
+  schemas:
+    RootResponse:
+      type: object
+      properties:
+        service:
+          type: string
+          example: pdf-extractext-api
+        status:
+          type: string
+          example: ok
+
+    ExtractionResponse:
+      type: object
+      description: Contrato C1 del microservicio de extracción.
+      required:
+        - content
+        - page_count
+      properties:
+        content:
+          type: string
+          description: Texto extraído del PDF.
+          example: Contrato de arrendamiento entre...
+        page_count:
+          type: integer
+          minimum: 1
+          description: Número de páginas procesadas.
+          example: 3
+
+    ErrorResponse:
+      type: object
+      description: Formato estándar de error de la API (ver ErrorHandler global).
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Código de error machine-readable.
+          enum:
+            - BAD_REQUEST
+            - NOT_FOUND
+            - CONFLICT
+            - METHOD_NOT_ALLOWED
+            - REQUEST_TOO_LARGE
+            - UNSUPPORTED_MEDIA_TYPE
+            - BAD_GATEWAY
+            - SERVICE_UNAVAILABLE
+            - GATEWAY_TIMEOUT
+            - INTERNAL_ERROR
+          example: BAD_REQUEST
+        message:
+          type: string
+          description: Mensaje legible para humanos.
+          example: se requiere el campo multipart 'file'
