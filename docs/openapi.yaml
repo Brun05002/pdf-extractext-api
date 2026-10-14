@@ -33,10 +33,13 @@ paths:
 
   /upload-pdf:
     post:
-      summary: Sube un PDF y devuelve el texto extraído
+      summary: Sube un PDF, extrae su texto y lo persiste
       description: |
         Recibe un archivo PDF, lo reenvía al microservicio de extracción
-        bajo un timeout estricto de 30 segundos y devuelve el resultado.
+        bajo un timeout estricto de 30 segundos y persiste el resultado en
+        el microservicio de persistencia (`{filename, extracted_text,
+        checksum}`, contrato C2). El checksum es único: un PDF ya cargado
+        se rechaza con 409 Conflict.
         El archivo se procesa en streaming; su tamaño máximo está limitado
         por `MAX_FILE_SIZE_MB` (20 MB por defecto).
       operationId: uploadPdf
@@ -64,12 +67,12 @@ paths:
                   format: binary
                   description: Archivo PDF a procesar.
       responses:
-        "200":
-          description: Extracción exitosa.
+        "201":
+          description: Extracción y persistencia exitosas.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ExtractionResponse"
+                $ref: "#/components/schemas/Document"
         "400":
           description: Falta el campo multipart `file` o la petición es inválida.
           content:
@@ -79,6 +82,15 @@ paths:
               example:
                 code: BAD_REQUEST
                 message: se requiere el campo multipart 'file'
+        "409":
+          description: Ya existe un documento con el mismo checksum (índice único anti-TOCTOU).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                code: CONFLICT
+                message: el documento ya existe
         "413":
           description: El archivo excede el tamaño máximo permitido.
           content:
@@ -153,6 +165,32 @@ components:
           minimum: 1
           description: Número de páginas procesadas.
           example: 3
+
+    Document:
+      type: object
+      description: Contrato C2 expuesto por el microservicio de persistencia.
+      required:
+        - id
+        - filename
+        - extracted_text
+        - checksum
+      properties:
+        id:
+          type: string
+          description: Identificador del documento (ObjectId hex de 24 caracteres).
+          example: 654f1f77bcf86cd799439011
+        filename:
+          type: string
+          description: Nombre original del archivo PDF.
+          example: contrato.pdf
+        extracted_text:
+          type: string
+          description: Texto extraído del PDF.
+          example: Contrato de arrendamiento entre...
+        checksum:
+          type: string
+          description: SHA-256 (hex) de los bytes originales del PDF. Único por documento.
+          example: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 
     ErrorResponse:
       type: object
