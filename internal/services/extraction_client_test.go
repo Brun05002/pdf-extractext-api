@@ -24,11 +24,14 @@ func TestExtractionClient_StreamsBodyAndParsesResponse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "texto extraido", result.Content)
 	assert.Equal(t, 3, result.PageCount)
+	assert.Equal(t, "informe.pdf", result.Filename)
+	assert.Equal(t, "texto extraido", result.ExtractedText)
+	assert.Equal(t, "abc123", result.Checksum)
 }
 
 func httpServerHandler(t *testing.T, expected string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Contrato C1: multipart/form-data con campo "file".
+		// multipart/form-data con campo "file".
 		require.Contains(t, r.Header.Get("Content-Type"), "multipart/form-data")
 		file, header, err := r.FormFile("file")
 		require.NoError(t, err)
@@ -40,7 +43,7 @@ func httpServerHandler(t *testing.T, expected string) http.HandlerFunc {
 		require.Equal(t, expected, string(body), "el stream debe llegar íntegro y sin buffers fijos")
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"content":"texto extraido","page_count":3}`))
+		w.Write([]byte(`{"filename":"informe.pdf","extracted_text":"texto extraido","checksum":"abc123","content":"texto extraido","page_count":3}`))
 	}
 }
 

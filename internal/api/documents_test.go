@@ -79,16 +79,16 @@ func getJSON(t *testing.T, app *fiber.App, path string) (int, string) {
 func TestListDocuments_OK(t *testing.T) {
 	repo := new(MockPersistenceRepository)
 	repo.On("FindAll", mock.Anything).Return([]*services.Document{
-		{ID: "doc-1", Filename: "a.pdf", Content: "texto A", PageCount: 1},
-		{ID: "doc-2", Filename: "b.pdf", Content: "texto B", PageCount: 2},
+		{ID: "doc-1", Filename: "a.pdf", ExtractedText: "texto A", Checksum: "sum-a"},
+		{ID: "doc-2", Filename: "b.pdf", ExtractedText: "texto B", Checksum: "sum-b"},
 	}, nil)
 
 	status, body := getJSON(t, newDocumentsApp(repo), "/documents")
 
 	assert.Equal(t, fiber.StatusOK, status)
 	assert.JSONEq(t, `[
-		{"id":"doc-1","filename":"a.pdf","content":"texto A","page_count":1},
-		{"id":"doc-2","filename":"b.pdf","content":"texto B","page_count":2}
+		{"id":"doc-1","filename":"a.pdf","extracted_text":"texto A","checksum":"sum-a"},
+		{"id":"doc-2","filename":"b.pdf","extracted_text":"texto B","checksum":"sum-b"}
 	]`, body)
 	repo.AssertExpectations(t)
 }
@@ -96,12 +96,12 @@ func TestListDocuments_OK(t *testing.T) {
 func TestGetDocumentByID_OK(t *testing.T) {
 	repo := new(MockPersistenceRepository)
 	repo.On("FindByID", mock.Anything, "doc-1").
-		Return(&services.Document{ID: "doc-1", Filename: "a.pdf", Content: "texto A", PageCount: 1}, nil)
+		Return(&services.Document{ID: "doc-1", Filename: "a.pdf", ExtractedText: "texto A", Checksum: "sum-a"}, nil)
 
 	status, body := getJSON(t, newDocumentsApp(repo), "/documents/doc-1")
 
 	assert.Equal(t, fiber.StatusOK, status)
-	assert.JSONEq(t, `{"id":"doc-1","filename":"a.pdf","content":"texto A","page_count":1}`, body)
+	assert.JSONEq(t, `{"id":"doc-1","filename":"a.pdf","extracted_text":"texto A","checksum":"sum-a"}`, body)
 	repo.AssertExpectations(t)
 }
 
@@ -120,7 +120,7 @@ func TestUpdateDocument_OK(t *testing.T) {
 	repo := new(MockPersistenceRepository)
 	repo.On("Update", mock.Anything, "doc-1", mock.MatchedBy(func(d *services.Document) bool {
 		return d.Filename == "renombrado.pdf"
-	})).Return(&services.Document{ID: "doc-1", Filename: "renombrado.pdf", PageCount: 3}, nil)
+	})).Return(&services.Document{ID: "doc-1", Filename: "renombrado.pdf", ExtractedText: "texto", Checksum: "sum-1"}, nil)
 
 	req := httptest.NewRequest(http.MethodPatch, "/documents/doc-1",
 		strings.NewReader(`{"filename":"renombrado.pdf"}`))
@@ -133,7 +133,7 @@ func TestUpdateDocument_OK(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 
 	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
-	assert.JSONEq(t, `{"id":"doc-1","filename":"renombrado.pdf","content":"","page_count":3}`, string(body))
+	assert.JSONEq(t, `{"id":"doc-1","filename":"renombrado.pdf","extracted_text":"texto","checksum":"sum-1"}`, string(body))
 	repo.AssertExpectations(t)
 }
 

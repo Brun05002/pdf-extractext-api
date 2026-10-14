@@ -33,10 +33,10 @@ func main() {
 
 	// Timeout estricto: backpressure contra un upstream lento.
 	extraction := services.NewHTTPExtractionClient(cfg.ExtractionURL, 30*time.Second)
-	api.RegisterExtract(app, extraction, cfg.MaxFileSizeMB)
-	api.RegisterUploadPDF(app, extraction)
-
 	persistence := services.NewHTTPPersistenceClient(cfg.PersistenceURL, 10*time.Second)
+
+	api.RegisterExtract(app, extraction, cfg.MaxFileSizeMB)
+	api.RegisterUploadPDF(app, extraction, persistence)
 	api.RegisterDocuments(app, persistence)
 
 	slog.Info("iniciando servidor", "puerto", cfg.Port)

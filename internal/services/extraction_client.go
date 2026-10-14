@@ -10,10 +10,13 @@ import (
 	"time"
 )
 
-// ExtractionResult es la respuesta del servicio de extracción.
+//  La API solo expone {content, page_count} en POST /extract.
 type ExtractionResult struct {
-	Content   string `json:"content"`
-	PageCount int    `json:"page_count"`
+	Filename      string `json:"filename"`
+	ExtractedText string `json:"extracted_text"`
+	Checksum      string `json:"checksum"`
+	Content       string `json:"content"`
+	PageCount     int    `json:"page_count"`
 }
 
 // ExtractionClient abstrae la comunicación con el microservicio de extracción.
@@ -34,8 +37,7 @@ func NewHTTPExtractionClient(baseURL string, timeout time.Duration) *HTTPExtract
 	}
 }
 
-// Extract envía el PDF como multipart/form-data (contrato C1 del extractor,
-// campo "file") streameando por io.Pipe: el cuerpo nunca se materializa entero.
+// Extract envía el PDF como multipart/form-data streameando por io.Pipe: el cuerpo nunca se materializa entero.
 func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename string, body io.Reader) (*ExtractionResult, error) {
 	pr, pw := io.Pipe()
 	writer := multipart.NewWriter(pw)
@@ -55,6 +57,8 @@ func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename 
 		return nil, fmt.Errorf("construir request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
+	// El router interno de Traefik (:8090) enruta a Extraction por Host.
+	req.Host = "extraction.pdf-extractext.localhost"
 	if requestID != "" {
 		req.Header.Set("X-Request-ID", requestID)
 	}

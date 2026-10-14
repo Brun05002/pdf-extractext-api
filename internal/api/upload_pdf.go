@@ -16,12 +16,12 @@ var uploadTimeout = 30 * time.Second
 
 type uploadPDFHandler struct {
 	extractor services.ExtractionClient
+	repo      services.PersistenceRepository
 }
 
-// RegisterUploadPDF registra POST /upload-pdf, orquestando la extracción
-// con timeout estricto y propagación del X-Request-ID.
-func RegisterUploadPDF(app *fiber.App, extractor services.ExtractionClient) {
-	h := &uploadPDFHandler{extractor: extractor}
+// RegisterUploadPDF registra POST /upload-pdf: extrae (C1) y persiste (C2) con X-Request-ID y timeout estricto.
+func RegisterUploadPDF(app *fiber.App, extractor services.ExtractionClient, repo services.PersistenceRepository) {
+	h := &uploadPDFHandler{extractor: extractor, repo: repo}
 	app.Post("/upload-pdf", h.handle)
 }
 
@@ -68,7 +68,7 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 		})
 	}
 
-	// Validación del contrato C1 del extractor.
+	// Validación del contrato C1.
 	if err := validateExtractionResult(result); err != nil {
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
 			"error":      "respuesta del extractor no cumple el contrato: " + err.Error(),
@@ -76,11 +76,27 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.Status(fiber.StatusOK).JSON(result)
+	// El índice único de checksum es la barrera anti-TOCTOU: un duplicado llega como 409.
+	saved, err := h.repo.Save(ctx, &services.Document{
+		Filename:      result.Filename,
+		ExtractedText: result.ExtractedText,
+		Checksum:      result.Checksum,
+	})
+	if err != nil {
+		if errors.Is(err, services.ErrConflict) {
+			// El error handler global lo traduce a 409 {"code":"CONFLICT",...}.
+			return err
+		}
+		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
+			"error":      "fallo en el servicio de persistencia",
+			"request_id": requestID,
+		})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(saved)
 }
 
-// validateExtractionResult verifica el contrato C1: contenido no vacío y
-// conteo de páginas positivo.
+// validateExtractionResult verifica el contrato C1: content no vacío y page_count positivo.
 func validateExtractionResult(r *services.ExtractionResult) error {
 	if r == nil {
 		return errors.New("respuesta vacía")

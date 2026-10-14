@@ -28,6 +28,9 @@ func TestSave_Created(t *testing.T) {
 
 		var doc Document
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&doc))
+		assert.Equal(t, "a.pdf", doc.Filename)
+		assert.Equal(t, "texto", doc.ExtractedText)
+		assert.Equal(t, "sum-1", doc.Checksum)
 		doc.ID = "doc-123"
 
 		w.Header().Set("Content-Type", "application/json")
@@ -35,10 +38,12 @@ func TestSave_Created(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(doc)
 	}))
 
-	saved, err := client.Save(context.Background(), &Document{Filename: "a.pdf", Content: "texto", PageCount: 3})
+	saved, err := client.Save(context.Background(), &Document{Filename: "a.pdf", ExtractedText: "texto", Checksum: "sum-1"})
 	require.NoError(t, err)
 	assert.Equal(t, "doc-123", saved.ID)
 	assert.Equal(t, "a.pdf", saved.Filename)
+	assert.Equal(t, "texto", saved.ExtractedText)
+	assert.Equal(t, "sum-1", saved.Checksum)
 }
 
 func TestSave_Conflict(t *testing.T) {
@@ -56,13 +61,14 @@ func TestFindByID_OK(t *testing.T) {
 		assert.Equal(t, "/documents/doc-123", r.URL.Path)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(Document{ID: "doc-123", Filename: "a.pdf", Content: "texto", PageCount: 3})
+		_ = json.NewEncoder(w).Encode(Document{ID: "doc-123", Filename: "a.pdf", ExtractedText: "texto", Checksum: "sum-1"})
 	}))
 
 	doc, err := client.FindByID(context.Background(), "doc-123")
 	require.NoError(t, err)
 	assert.Equal(t, "doc-123", doc.ID)
-	assert.Equal(t, 3, doc.PageCount)
+	assert.Equal(t, "texto", doc.ExtractedText)
+	assert.Equal(t, "sum-1", doc.Checksum)
 }
 
 func TestFindByID_NotFound(t *testing.T) {
@@ -103,7 +109,7 @@ func TestUpdate_OK(t *testing.T) {
 		assert.Equal(t, "renombrado.pdf", doc.Filename)
 
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(Document{ID: "doc-1", Filename: doc.Filename, PageCount: 3})
+		_ = json.NewEncoder(w).Encode(Document{ID: "doc-1", Filename: doc.Filename, ExtractedText: "texto", Checksum: "sum-1"})
 	}))
 
 	updated, err := client.Update(context.Background(), "doc-1", &Document{Filename: "renombrado.pdf"})

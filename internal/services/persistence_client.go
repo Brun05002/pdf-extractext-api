@@ -16,12 +16,19 @@ var (
 	ErrConflict = errors.New("el documento ya existe")
 )
 
-// Document es la entidad persistida por el microservicio de persistencia.
+// Document es la entidad del microservicio de persistencia.
 type Document struct {
-	ID        string `json:"id"`
-	Filename  string `json:"filename"`
-	Content   string `json:"content"`
-	PageCount int    `json:"page_count"`
+	ID            string `json:"id,omitempty"`
+	Filename      string `json:"filename"`
+	ExtractedText string `json:"extracted_text"`
+	Checksum      string `json:"checksum"`
+}
+
+// saveDocumentRequest es el payload exacto de POST /documents.
+type saveDocumentRequest struct {
+	Filename      string `json:"filename"`
+	ExtractedText string `json:"extracted_text,omitempty"`
+	Checksum      string `json:"checksum"`
 }
 
 // PersistenceRepository abstrae el CRUD contra el microservicio de persistencia.
@@ -48,7 +55,11 @@ func NewHTTPPersistenceClient(baseURL string, timeout time.Duration) *HTTPPersis
 
 // Save crea un documento (POST /documents). 409 -> ErrConflict.
 func (c *HTTPPersistenceClient) Save(ctx context.Context, doc *Document) (*Document, error) {
-	body, err := json.Marshal(doc)
+	body, err := json.Marshal(saveDocumentRequest{
+		Filename:      doc.Filename,
+		ExtractedText: doc.ExtractedText,
+		Checksum:      doc.Checksum,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("serializar documento: %w", err)
 	}
@@ -107,9 +118,11 @@ func (c *HTTPPersistenceClient) FindByID(ctx context.Context, id string) (*Docum
 }
 
 // Update reemplaza campos de un documento (PATCH /documents/{id}).
-// 404 -> ErrNotFound, 409 -> ErrConflict (unicidad/checksum).
 func (c *HTTPPersistenceClient) Update(ctx context.Context, id string, doc *Document) (*Document, error) {
-	body, err := json.Marshal(doc)
+	// Persistence solo admite filename en PATCH (decodificación estricta).
+	body, err := json.Marshal(struct {
+		Filename string `json:"filename"`
+	}{Filename: doc.Filename})
 	if err != nil {
 		return nil, fmt.Errorf("serializar documento: %w", err)
 	}
@@ -144,7 +157,7 @@ func (c *HTTPPersistenceClient) Update(ctx context.Context, id string, doc *Docu
 	return &updated, nil
 }
 
-// Delete elimina un documento (DELETE /documents/{id}). 404 -> ErrNotFound.
+
 func (c *HTTPPersistenceClient) Delete(ctx context.Context, id string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/documents/"+id, nil)
 	if err != nil {
@@ -166,7 +179,6 @@ func (c *HTTPPersistenceClient) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// FindAll lista todos los documentos (GET /documents).
 func (c *HTTPPersistenceClient) FindAll(ctx context.Context) ([]*Document, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/documents", nil)
 	if err != nil {

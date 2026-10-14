@@ -49,7 +49,11 @@ func (h *extractHandler) handle(c *fiber.Ctx) error {
 		})
 	}
 
-	return c.Status(fiber.StatusOK).JSON(result)
+	// Contrato público: exactamente {content, page_count}; el endpoint es 100% stateless.
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"content":    result.Content,
+		"page_count": result.PageCount,
+	})
 }
 
 func isPDF(filename string) bool {
