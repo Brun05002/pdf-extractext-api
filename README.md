@@ -2,14 +2,14 @@
 
 Microservicio **API de borde** del sistema pdf-extractext. Recibe archivos PDF
 por HTTP, aplica los límites del borde (tamaño máximo del cuerpo, validación de
-formato) y delega la extracción de texto en `pdf-extractext-extractor`. La
-orquestación completa (extracción + persistencia en un solo endpoint público)
-está planificada como issue #7 — ver [Roadmap](#roadmap).
+formato) y orquesta la extracción de texto (`pdf-extractext-extractor`) y su
+persistencia (`pdf-extractext-persistence`).
 
 - **Stack:** Go 1.27 + Fiber v2 (fasthttp). Streaming 100% en memoria: cero
   volcados a disco en el hot path.
-- **Estado:** bootstrap en desarrollo (TDD). No desplegable como pipeline
-  completo todavía — ver [Limitaciones](#limitaciones-actuales).
+- **Estado:** implementado y declarado en el compose de
+  `pdf-extractext-infrastructure` (servicio `api`, ruteado por Traefik). Ver
+  [CHANGELOG.md](CHANGELOG.md) (v1.0.0).
 
 ## Arquitectura
 
@@ -23,109 +23,129 @@ pdf-extractext-api (:8000)
 ```
 
 El orquestador completo de contenedores (compose, redes, smoke checks) vive en
-el repo hermano `pdf-extractext-infrastructure`. Esta API todavía no está
-declarada en ese compose.
+el repo hermano `pdf-extractext-infrastructure`; esta API está declarada y
+expuesta allí.
 
 ## Variables de entorno
 
-Se validan al arranque con fail-fast (`log.Fatalf`): si falta una obligatoria,
-el proceso no levanta.
+Se validan al arranque con fail-fast: si falta una obligatoria, el proceso no
+levanta.
 
 | Variable | Requerida | Default | Descripción |
 |---|---|---|---|
 | `PORT` | No | `:8000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
 | `EXTRACTION_URL` | **Sí** | — | URL base del microservicio de extracción. Ej.: `http://extraction:8001` |
-| `PERSISTENCE_URL` | **Sí** | — | URL base del microservicio de persistencia. Ej.: `http://persistence:8002`. Obligatoria al arranque, **aún sin consumo** (issue #6) |
+| `PERSISTENCE_URL` | **Sí** | — | URL base del microservicio de persistencia. Ej.: `http://persistence:8002`. La consumen `/upload-pdf` y el CRUD `/documents` |
 | `MAX_FILE_SIZE_MB` | No | `20` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO (fronteras + headers + archivo) |
 
 ## Endpoints
 
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/` | Health público (lo consume el `healthprobe` de Docker). |
+| `POST` | `/extract` | Extrae texto: reenvía el PDF al extractor (contrato C1). Stateless. |
+| `POST` | `/upload-pdf` | Extrae y **persiste** (C1 + C2). Devuelve el documento creado. |
+| `GET` | `/documents` | Lista los documentos persistidos. |
+| `GET` | `/documents/{id}` | Obtiene un documento. |
+| `PATCH` | `/documents/{id}` | Renombra un documento (`filename`). |
+| `DELETE` | `/documents/{id}` | Elimina un documento. |
+
 ### `GET /`
 
-Probe informal (única ruta viva en el binario actual).
+Health. Lo consume el `healthprobe` del contenedor y los balanceadores.
 
 ```json
-{ "service": "pdf-extractext-api", "status": "ok" }
+{ "service": "pdf-extractext-api", "status": "UP", "time": "2026-10-18T12:00:00Z" }
 ```
 
 ### `POST /extract`
 
-Vivo en el binario. Recibe el PDF y lo reenvía al extractor como
-`multipart/form-data` (contrato C1, campo `file`) streameando en memoria.
+Recibe el PDF (`multipart/form-data`, campo `file`, extensión `.pdf`) y lo
+reenvía al extractor streameando en memoria. No persiste nada.
 
-- **Request:** `multipart/form-data`, campo `file`, solo extensión `.pdf`.
-- **Response 200 (contrato TP):**
+- **Response 200 (contrato C1 público):**
 
 ```json
-{ "content": "<texto extraído>", "page_count": 42 }
+{ "content": "<texto extraído, Markdown>", "page_count": 42 }
 ```
 
 | Status | Causa |
 |---|---|
 | 400 | Falta el campo multipart `file` |
 | 413 | El cuerpo supera `MAX_FILE_SIZE_MB` (rechazado por `BodyLimit`) |
-| 415 | El archivo no es un PDF |
+| 415 | El archivo no tiene extensión `.pdf` |
+| 500 | No se pudo abrir el archivo subido |
 | 502 | Fallo del upstream de extracción |
 
-El formato de error actual (`{"error": "..."}`, en español) es **provisional**:
-la traducción/estandarización global de errores llega con la issue #8.
+### `POST /upload-pdf`
 
-## Limitaciones actuales
+Extrae (C1) y persiste (C2) en una sola llamada, con timeout estricto de 30 s y
+propagación de `X-Request-ID` hacia el extractor.
 
-Registro honesto de deuda técnica; cada ítem referencia la issue que lo
-resuelve.
+- **Response 201:** el documento persistido
+  `{ "id": "...", "filename": "...", "extracted_text": "...", "checksum": "..." }`.
+- **409:** ya existe un documento con el mismo `checksum` (barrera anti-TOCTOU
+  del índice único).
 
-1. **`PERSISTENCE_URL` es requisito muerto** — obligatoria al arranque pero
-   ningún código la consume. → issue #6 (cliente de persistencia).
-2. **`X-Request-ID` sin explotar** — el middleware lo genera/propaga en la
-   respuesta, pero no se loguea ni se reenvía al upstream. → junto con #7/#8.
-3. **Validación de PDF solo por extensión** — no hay chequeo de magic bytes
-   (`%PDF-`). → endurecimiento posterior.
-4. **Sin endpoints de lectura/escritura** de documentos persistidos. → issues
-   #10 (GET) y #11 (PATCH / DELETE).
-5. **Sin logging estructurado, métricas ni tracing.** → issue #13.
-## Roadmap
+| Status | Causa |
+|---|---|
+| 400 | Falta el campo multipart `file` |
+| 413 | El cuerpo supera `MAX_FILE_SIZE_MB` |
+| 415 | El archivo no tiene extensión `.pdf` |
+| 502 | Fallo del extractor o del servicio de persistencia |
+| 504 | El extractor excedió el timeout |
 
-| Issue | Descripción | Estado |
-|---|---|---|
-| #4 | Renombrar módulo Go a nombre definitivo | Pendiente |
-| #5 | Integración Continua (CI) y automatización | Pendiente |
-| #6 | Cliente de persistencia (CRUD HTTP hacia la base) | Pendiente |
-| #7 | Orquestador `POST /upload-pdf` (combina extraction + persistence) | Pendiente |
-| #8 | Traducción global de errores | Pendiente |
-| #9 | Documentar especificación OpenAPI | Pendiente |
-| #10 | Endpoints de lectura (GET) | Pendiente |
-| #11 | Endpoints de escritura (PATCH / DELETE) | Pendiente |
-| #12 | Docker multi-stage para Go (endurecimiento de la base) | Base hecha, refino pendiente |
-| #13 | Housekeeping y observabilidad mínima | Pendiente |
+### `/documents`
+
+- `GET /documents` → `200` con la lista de
+  `{id, filename, extracted_text, checksum}`.
+- `GET /documents/{id}` → `200` con el documento; `404` si no existe.
+- `PATCH /documents/{id}` → `200`; renombra (`{"filename": "..."}`); `400` si el
+  cuerpo es inválido; `404`; `409`.
+- `DELETE /documents/{id}` → `204`; `404` si no existe.
+
+### Formato de error
+
+La traducción global (`CustomErrorHandler`) usa el envelope estándar
+`{"code": "...", "message": "..."}`:
+
+```json
+{ "code": "NOT_FOUND", "message": "documento no encontrado" }
+```
+
+Códigos posibles: `BAD_REQUEST`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`,
+`CONFLICT`, `REQUEST_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`, `BAD_GATEWAY`,
+`GATEWAY_TIMEOUT`, `SERVICE_UNAVAILABLE`, `INTERNAL_ERROR`.
+
+> **Deuda conocida:** los caminos 400/415/500/502/504 de `/extract` y
+> `/upload-pdf` todavía responden con el formato legacy `{"error": "..."}`
+> (y `{"error", "request_id"}` en `/upload-pdf`) en lugar del envelope estándar.
 
 ## Desarrollo
 
-Requisitos: Go 1.27+.
-
 ```bash
-# Tests: 15 escritos, todos en verde.
-go test ./...
+# Calidad
+make ci          # vet + lint + test
+make vet         # go vet ./...
+make test        # go test -race -cover ./...
 
-# Ejecución local (falla sin las obligatorias, por diseño)
-EXTRACTION_URL=http://localhost:8001 \
-PERSISTENCE_URL=http://localhost:8002 \
+# Ejecutar en local (requiere las URLs del extractor y del persistence)
+export EXTRACTION_URL=http://localhost:8001
+export PERSISTENCE_URL=http://localhost:8002
 go run ./cmd/api
 ```
 
-### Docker (base)
+El binario `cmd/healthprobe` implementa el `HEALTHCHECK` de la imagen
+distroless contra `GET /`.
 
-El `Dockerfile` es una **base bootstrap**: multi-stage con build estático
-(`CGO_ENABLED=0`, `-trimpath`), usuario no-root y `HEALTHCHECK` sobre `GET /`.
-El endurecimiento completo es ownership de la issue #12.
+## Docker
 
 ```bash
-docker build -t pdf-extractext-api:bootstrap .
-
+docker build -t pdf-extractext-api:local .
 docker run --rm -p 8000:8000 \
   -e EXTRACTION_URL=http://extraction:8001 \
   -e PERSISTENCE_URL=http://persistence:8002 \
-  pdf-extractext-api:bootstrap
+  pdf-extractext-api:local
 ```
 
 Dentro de las redes del compose de `pdf-extractext-infrastructure`, los hosts
@@ -136,15 +156,17 @@ Dentro de las redes del compose de `pdf-extractext-infrastructure`, los hosts
 ```
 pdf-extractext-api/
 ├── cmd/
-│   └── api/
-    │       └── main.go            # entrypoint: config + GET / (wiring de /extract pendiente, #7)
-└── internal/
-    ├── api/
-    │   ├── root.go            # GET /
-    │   └── extract.go         # handler POST /extract (no registrado aún)
-    ├── core/
-    │   ├── config.go          # env vars con validación fail-fast
-    │   └── middleware.go      # X-Request-ID
-    └── services/
-        └── extraction_client.go  # cliente HTTP hacia el extractor (streaming)
+│   ├── api/          # entrypoint: config + wiring de rutas
+│   └── healthprobe/  # probe para la imagen distroless
+├── internal/
+│   ├── api/          # handlers: root, extract, upload_pdf, documents, errors
+│   ├── core/         # config (fail-fast) + middleware X-Request-ID
+│   └── services/     # clientes HTTP: extraction + persistence
+└── docs/
+    └── openapi.yaml  # especificación del contrato público
 ```
+
+## CI
+
+`.github/workflows/ci.yml` ejecuta `go vet`, `golangci-lint` y
+`go test -race -cover` en cada push/PR a `main`.
