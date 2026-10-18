@@ -312,6 +312,7 @@ func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {
 			defer resp.Body.Close()
 
 			body, _ := io.ReadAll(resp.Body)
+			assertProblemContentType(t, resp)
 			assertProblemBody(t, string(body), tc.wantStatus, tc.wantCode, tc.wantURN, tc.wantDetail)
 			if tc.wantRetryAfter != "" {
 				assert.Equal(t, tc.wantRetryAfter, resp.Header.Get("Retry-After"), "el Retry-After upstream debe conservarse")

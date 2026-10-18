@@ -50,14 +50,16 @@ func problem(c *fiber.Ctx, status int, code, detail string) error {
 		code = "INTERNAL_ERROR"
 		status = fiber.StatusInternalServerError
 	}
-	c.Set(fiber.HeaderContentType, "application/problem+json")
-	return c.Status(status).JSON(fiber.Map{
+	// El header se setea después de JSON(): Fiber lo sobrescribe a application/json.
+	err := c.Status(status).JSON(fiber.Map{
 		"type":   "urn:pdf-extractext:" + meta.urn,
 		"title":  meta.title,
 		"status": status,
 		"detail": detail,
 		"code":   code,
 	})
+	c.Set(fiber.HeaderContentType, "application/problem+json")
+	return err
 }
 
 // problemUpstream re-emite el problem del upstream preservando su URN, code
@@ -66,7 +68,6 @@ func problemUpstream(c *fiber.Ctx, ue *services.UpstreamError) error {
 	if ue.RetryAfter != "" {
 		c.Set(fiber.HeaderRetryAfter, ue.RetryAfter)
 	}
-	c.Set(fiber.HeaderContentType, "application/problem+json")
 	body := fiber.Map{
 		"type":   ue.Type,
 		"title":  ue.Title,
@@ -78,7 +79,9 @@ func problemUpstream(c *fiber.Ctx, ue *services.UpstreamError) error {
 		body["type"] = "urn:pdf-extractext:upstream-error"
 		body["title"] = "Error de un servicio interno"
 	}
-	return c.Status(ue.Status).JSON(body)
+	err := c.Status(ue.Status).JSON(body)
+	c.Set(fiber.HeaderContentType, "application/problem+json")
+	return err
 }
 
 // respondUpstream traduce un error de upstream hacia el cliente (FIND-012):

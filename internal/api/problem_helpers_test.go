@@ -2,11 +2,18 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// assertProblemContentType verifica el Content-Type RFC 9457 de la respuesta.
+func assertProblemContentType(t *testing.T, resp *http.Response) {
+	t.Helper()
+	assert.Equal(t, "application/problem+json", resp.Header.Get("Content-Type"))
+}
 
 // assertProblemBody verifica el contrato RFC 9457: campos exactos
 // {type, title, status, detail, code} con el URN y status esperados.
