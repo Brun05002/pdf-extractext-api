@@ -45,7 +45,7 @@ func LoadConfig() (*Config, error) {
 func loadMaxFileSize() (int64, error) {
 	raw := os.Getenv("MAX_FILE_SIZE_MB")
 	if raw == "" {
-		return 20, nil
+		return 16, nil
 	}
 	size, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {

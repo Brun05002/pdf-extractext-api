@@ -5,8 +5,10 @@ por HTTP, aplica los límites del borde (tamaño máximo del cuerpo, validación
 formato) y orquesta la extracción de texto (`pdf-extractext-extractor`) y su
 persistencia (`pdf-extractext-persistence`).
 
-- **Stack:** Go 1.27 + Fiber v2 (fasthttp). Streaming 100% en memoria: cero
-  volcados a disco en el hot path.
+- **Stack:** Go 1.27 + Fiber v2 (fasthttp). El cuerpo multipart se reenvía al
+  extractor en streaming; el default `MAX_FILE_SIZE_MB=16` se fija justo en el
+  umbral en que fasthttp empieza a volcar a disco (16 MiB), de modo que el
+  hot path no toca disco.
 - **Estado:** implementado y declarado en el compose de
   `pdf-extractext-infrastructure` (servicio `api`, ruteado por Traefik). Ver
   [CHANGELOG.md](CHANGELOG.md) (v1.0.0).
@@ -36,7 +38,7 @@ levanta.
 | `PORT` | No | `:8000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
 | `EXTRACTION_URL` | **Sí** | — | URL base del microservicio de extracción. Ej.: `http://extraction:8001` |
 | `PERSISTENCE_URL` | **Sí** | — | URL base del microservicio de persistencia. Ej.: `http://persistence:8002`. La consumen `/upload-pdf` y el CRUD `/documents` |
-| `MAX_FILE_SIZE_MB` | No | `20` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO (fronteras + headers + archivo) |
+| `MAX_FILE_SIZE_MB` | No | `16` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO (fronteras + headers + archivo) |
 
 ## Endpoints
 

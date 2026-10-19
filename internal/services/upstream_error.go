@@ -8,7 +8,7 @@ import (
 
 // UpstreamError preserva el error RFC 9457 de un upstream (status, URN,
 // code, detail y el header Retry-After si existe) para que la capa de API
-// pueda re-emirlo sin colapsarlo en un 502/500 genérico (FIND-012/FIND-013).
+// pueda re-emitirlo sin colapsarlo en un 502/500 genérico.
 type UpstreamError struct {
 	Status     int
 	Type       string

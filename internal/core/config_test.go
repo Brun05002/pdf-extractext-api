@@ -25,7 +25,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 
 	cfg, err := LoadConfig()
 	require.NoError(t, err)
-	assert.Equal(t, int64(20), cfg.MaxFileSizeMB, "debe aplicar default de 20MB")
+	assert.Equal(t, int64(16), cfg.MaxFileSizeMB, "debe aplicar default de 16MB")
 	assert.Equal(t, ":8000", cfg.Port, "debe aplicar puerto default")
 }
 

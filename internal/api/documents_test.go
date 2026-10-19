@@ -203,7 +203,7 @@ func TestDeleteDocument_NotFound(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
-// FIND-013: id con formato distinto de hex-24 -> 400 sin tocar el upstream.
+// id con formato distinto de hex-24 -> 400 sin tocar el upstream.
 func TestDocuments_InvalidID_Returns400(t *testing.T) {
 	for _, path := range []string{
 		"/documents/no-es-un-objectid",
@@ -223,7 +223,7 @@ func TestDocuments_InvalidID_Returns400(t *testing.T) {
 	}
 }
 
-// FIND-013: un 400 del upstream Persistence se re-emite como 400, nunca 500.
+// un 400 del upstream Persistence se re-emite como 400, nunca 500.
 func TestGetDocumentByID_Upstream400_Propagates(t *testing.T) {
 	repo := new(MockPersistenceRepository)
 	repo.On("FindByID", mock.Anything, mock.Anything, "507f1f77bcf86cd799439011").

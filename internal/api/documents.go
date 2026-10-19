@@ -8,7 +8,7 @@ import (
 	"github.com/pdf-extractext/api/internal/services"
 )
 
-// objectIDPattern valida el id hex-24 de Mongo antes de llamar al upstream (FIND-013).
+// objectIDPattern valida el id hex-24 de Mongo antes de llamar al upstream.
 var objectIDPattern = regexp.MustCompile(`^[0-9a-f]{24}$`)
 
 type documentsHandler struct {
@@ -24,8 +24,7 @@ func RegisterDocuments(app *fiber.App, repo services.PersistenceRepository) {
 	app.Delete("/documents/:id", h.delete)
 }
 
-// validID valida el formato del id o devuelve un error 400 (FIND-013).
-// Usa fiber.NewError porque problem() retorna nil al serializar bien.
+// validID usa fiber.NewError porque el ErrorHandler global mapea 400 a problem+json.
 func validID(c *fiber.Ctx) (string, error) {
 	id := c.Params("id")
 	if !objectIDPattern.MatchString(id) {
