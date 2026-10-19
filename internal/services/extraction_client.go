@@ -33,7 +33,7 @@ type HTTPExtractionClient struct {
 func NewHTTPExtractionClient(baseURL string, timeout time.Duration) *HTTPExtractionClient {
 	return &HTTPExtractionClient{
 		baseURL: baseURL,
-		client:  &http.Client{Timeout: timeout},
+		client:  newHTTPClient(timeout),
 	}
 }
 

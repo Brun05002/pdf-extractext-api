@@ -33,7 +33,7 @@ type saveDocumentRequest struct {
 }
 
 // PersistenceRepository abstrae el CRUD contra el microservicio de persistencia.
-// requestID propaga X-Request-ID end-to-end en los logs (FIND-014).
+// requestID propaga X-Request-ID end-to-end en los logs.
 type PersistenceRepository interface {
 	Save(ctx context.Context, requestID string, doc *Document) (*Document, error)
 	FindByID(ctx context.Context, requestID, id string) (*Document, error)
@@ -51,11 +51,11 @@ type HTTPPersistenceClient struct {
 func NewHTTPPersistenceClient(baseURL string, timeout time.Duration) *HTTPPersistenceClient {
 	return &HTTPPersistenceClient{
 		baseURL: baseURL,
-		client:  &http.Client{Timeout: timeout},
+		client:  newHTTPClient(timeout),
 	}
 }
 
-// newRequest construye la petición con X-Request-ID para correlación (FIND-014).
+// newRequest construye la petición propagando X-Request-ID para correlación.
 func (c *HTTPPersistenceClient) newRequest(ctx context.Context, method, path, requestID string, body io.Reader) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {

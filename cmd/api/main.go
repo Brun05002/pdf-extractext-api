@@ -22,10 +22,13 @@ func main() {
 	}
 
 	app := fiber.New(fiber.Config{
-		// Límite duro en memoria; nunca se vuelca a disco.
 		BodyLimit: int(cfg.MaxFileSizeMB) * 1024 * 1024,
-		// Traducción global de errores al formato estándar {"code","message"}.
+		// Traducción global de errores a problem+json (RFC 9457).
 		ErrorHandler: api.CustomErrorHandler,
+		// WriteTimeout > timeout del cliente de extracción (30s) para no cortar /extract.
+		ReadTimeout:  35 * time.Second,
+		WriteTimeout: 40 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	})
 
 	app.Use(core.RequestID())
