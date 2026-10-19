@@ -1,8 +1,11 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"net"
 	"net/http"
+	"os"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/pdf-extractext/api/internal/services"
@@ -63,7 +66,7 @@ func problem(c *fiber.Ctx, status int, code, detail string) error {
 }
 
 // problemUpstream re-emite el problem del upstream preservando su URN, code
-// y detail, y opcionalmente el header Retry-After (backpressure, FIND-012).
+// y detail, y el header Retry-After si lo trae.
 func problemUpstream(c *fiber.Ctx, ue *services.UpstreamError) error {
 	if ue.RetryAfter != "" {
 		c.Set(fiber.HeaderRetryAfter, ue.RetryAfter)
@@ -84,10 +87,22 @@ func problemUpstream(c *fiber.Ctx, ue *services.UpstreamError) error {
 	return err
 }
 
-// respondUpstream traduce un error de upstream hacia el cliente (FIND-012):
-// propaga 503 (con Retry-After) y cualquier 4xx del upstream; 500 u otros
-// fallos (red/timeout) se responden como 502 genérico sin filtrar detalle.
+// isTimeout detecta agotamiento de tiempo de cualquier capa (contexto, red o
+// deadline) sin depender de qué timeout disparó primero.
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// respondUpstream traduce un error de upstream hacia el cliente: propaga 503
+// (con Retry-After) y los 4xx del upstream; red/timeout/500 caen a 502.
 func respondUpstream(c *fiber.Ctx, err error, fallbackDetail string) error {
+	if isTimeout(err) {
+		return problem(c, fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "un servicio interno excedió el tiempo límite")
+	}
 	var ue *services.UpstreamError
 	if errors.As(err, &ue) &&
 		(ue.Status == http.StatusServiceUnavailable || (ue.Status >= 400 && ue.Status < 500)) {
@@ -99,7 +114,6 @@ func respondUpstream(c *fiber.Ctx, err error, fallbackDetail string) error {
 // CustomErrorHandler traduce cualquier error al problem RFC 9457 estándar
 // cumpliendo la firma fiber.ErrorHandler.
 func CustomErrorHandler(c *fiber.Ctx, err error) error {
-	// Errores upstream del CRUD: se re-emiten preservando status/code (FIND-013).
 	var ue *services.UpstreamError
 	if errors.As(err, &ue) {
 		return problemUpstream(c, ue)

@@ -2,6 +2,7 @@ package services
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -57,7 +58,7 @@ func TestExtractionClient_UpstreamError(t *testing.T) {
 
 	_, err := client.Extract(t.Context(), "test-rid", "doc.pdf", strings.NewReader("pdf"))
 	var ue *UpstreamError
-	require.ErrorAs(t, err, &ue, "el error upstream debe preservarse como UpstreamError (FIND-012)")
+	require.ErrorAs(t, err, &ue, "el error upstream debe preservarse como UpstreamError")
 	assert.Equal(t, http.StatusInternalServerError, ue.Status)
 }
 
@@ -72,4 +73,8 @@ func TestExtractionClient_Timeout(t *testing.T) {
 
 	_, err := client.Extract(t.Context(), "test-rid", "doc.pdf", strings.NewReader("pdf"))
 	require.Error(t, err, "el timeout estricto debe cortar goroutines colgadas")
+
+	var netErr net.Error
+	require.ErrorAs(t, err, &netErr)
+	assert.True(t, netErr.Timeout(), "el error debe ser reconocible como timeout para mapear a 504")
 }

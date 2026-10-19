@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -151,6 +152,23 @@ func TestUploadPDF_Timeout(t *testing.T) {
 	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
 }
 
+// un net.Error de timeout (no context.DeadlineExceeded) también debe mapear a 504, no a 502.
+func TestUploadPDF_NetworkTimeout(t *testing.T) {
+	client := new(MockExtractionClient)
+	client.On("Extract", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, &net.DNSError{IsTimeout: true, Err: "i/o timeout"})
+
+	repo := new(MockPersistenceRepository)
+	app := newUploadApp(client, repo)
+	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("pdf"), "req-nettimeout"))
+	require.NoError(t, err)
+
+	assert.Equal(t, fiber.StatusGatewayTimeout, resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	assertProblemBody(t, string(body), fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "gateway-timeout", "el servicio de extracción excedió el tiempo límite")
+	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
+}
+
 func TestUploadPDF_MissingFile(t *testing.T) {
 	client := new(MockExtractionClient)
 	repo := new(MockPersistenceRepository)
@@ -243,7 +261,7 @@ func TestUploadPDF_RequestIDHeaderThroughHTTPClient(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
-// TestUploadPDF_UpstreamPropagation_E2E verifica FIND-012 con el cliente HTTP
+// TestUploadPDF_UpstreamPropagation_E2E verifica la propagación con el cliente HTTP
 // real: el 503 (con Retry-After) y el 422 del extractor se propagan tal cual;
 // un 500 del extractor se responde como 502 genérico sin filtrar detalle.
 func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {

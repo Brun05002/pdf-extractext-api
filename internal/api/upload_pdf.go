@@ -50,10 +50,9 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 
 	result, err := h.extractor.Extract(ctx, requestID, fileHeader.Filename, file)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
+		if isTimeout(err) || ctx.Err() != nil {
 			return problem(c, fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "el servicio de extracción excedió el tiempo límite")
 		}
-		// FIND-012: 503 con Retry-After y 4xx del extractor se propagan tal cual.
 		return respondUpstream(c, err, "fallo en el servicio de extracción")
 	}
 
