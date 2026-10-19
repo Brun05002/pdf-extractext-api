@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -32,12 +33,13 @@ type saveDocumentRequest struct {
 }
 
 // PersistenceRepository abstrae el CRUD contra el microservicio de persistencia.
+// requestID propaga X-Request-ID end-to-end en los logs (FIND-014).
 type PersistenceRepository interface {
-	Save(ctx context.Context, doc *Document) (*Document, error)
-	FindByID(ctx context.Context, id string) (*Document, error)
-	FindAll(ctx context.Context) ([]*Document, error)
-	Update(ctx context.Context, id string, doc *Document) (*Document, error)
-	Delete(ctx context.Context, id string) error
+	Save(ctx context.Context, requestID string, doc *Document) (*Document, error)
+	FindByID(ctx context.Context, requestID, id string) (*Document, error)
+	FindAll(ctx context.Context, requestID string) ([]*Document, error)
+	Update(ctx context.Context, requestID, id string, doc *Document) (*Document, error)
+	Delete(ctx context.Context, requestID, id string) error
 }
 
 // HTTPPersistenceClient implementa PersistenceRepository via HTTP/JSON.
@@ -53,9 +55,21 @@ func NewHTTPPersistenceClient(baseURL string, timeout time.Duration) *HTTPPersis
 	}
 }
 
+// newRequest construye la petición con X-Request-ID para correlación (FIND-014).
+func (c *HTTPPersistenceClient) newRequest(ctx context.Context, method, path, requestID string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return nil, fmt.Errorf("construir request: %w", err)
+	}
+	if requestID != "" {
+		req.Header.Set("X-Request-ID", requestID)
+	}
+	return req, nil
+}
+
 // Save crea un documento (POST /documents). 409 -> ErrConflict.
-func (c *HTTPPersistenceClient) Save(ctx context.Context, doc *Document) (*Document, error) {
-	body, err := json.Marshal(saveDocumentRequest{
+func (c *HTTPPersistenceClient) Save(ctx context.Context, requestID string, doc *Document) (*Document, error) {
+	payload, err := json.Marshal(saveDocumentRequest{
 		Filename:      doc.Filename,
 		ExtractedText: doc.ExtractedText,
 		Checksum:      doc.Checksum,
@@ -64,9 +78,9 @@ func (c *HTTPPersistenceClient) Save(ctx context.Context, doc *Document) (*Docum
 		return nil, fmt.Errorf("serializar documento: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/documents", bytes.NewReader(body))
+	req, err := c.newRequest(ctx, http.MethodPost, "/documents", requestID, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("construir request: %w", err)
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -80,7 +94,7 @@ func (c *HTTPPersistenceClient) Save(ctx context.Context, doc *Document) (*Docum
 		return nil, ErrConflict
 	}
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("persistence upstream respondió status %d", resp.StatusCode)
+		return nil, readUpstreamError(resp)
 	}
 
 	var saved Document
@@ -91,10 +105,10 @@ func (c *HTTPPersistenceClient) Save(ctx context.Context, doc *Document) (*Docum
 }
 
 // FindByID obtiene un documento (GET /documents/{id}). 404 -> ErrNotFound.
-func (c *HTTPPersistenceClient) FindByID(ctx context.Context, id string) (*Document, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/documents/"+id, nil)
+func (c *HTTPPersistenceClient) FindByID(ctx context.Context, requestID, id string) (*Document, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/documents/"+id, requestID, nil)
 	if err != nil {
-		return nil, fmt.Errorf("construir request: %w", err)
+		return nil, err
 	}
 
 	resp, err := c.client.Do(req)
@@ -107,7 +121,7 @@ func (c *HTTPPersistenceClient) FindByID(ctx context.Context, id string) (*Docum
 		return nil, ErrNotFound
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("persistence upstream respondió status %d", resp.StatusCode)
+		return nil, readUpstreamError(resp)
 	}
 
 	var doc Document
@@ -118,18 +132,18 @@ func (c *HTTPPersistenceClient) FindByID(ctx context.Context, id string) (*Docum
 }
 
 // Update reemplaza campos de un documento (PATCH /documents/{id}).
-func (c *HTTPPersistenceClient) Update(ctx context.Context, id string, doc *Document) (*Document, error) {
+func (c *HTTPPersistenceClient) Update(ctx context.Context, requestID, id string, doc *Document) (*Document, error) {
 	// Persistence solo admite filename en PATCH (decodificación estricta).
-	body, err := json.Marshal(struct {
+	payload, err := json.Marshal(struct {
 		Filename string `json:"filename"`
 	}{Filename: doc.Filename})
 	if err != nil {
 		return nil, fmt.Errorf("serializar documento: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.baseURL+"/documents/"+id, bytes.NewReader(body))
+	req, err := c.newRequest(ctx, http.MethodPatch, "/documents/"+id, requestID, bytes.NewReader(payload))
 	if err != nil {
-		return nil, fmt.Errorf("construir request: %w", err)
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -147,7 +161,7 @@ func (c *HTTPPersistenceClient) Update(ctx context.Context, id string, doc *Docu
 	case http.StatusOK:
 		// continúa a la decodificación
 	default:
-		return nil, fmt.Errorf("persistence upstream respondió status %d", resp.StatusCode)
+		return nil, readUpstreamError(resp)
 	}
 
 	var updated Document
@@ -157,11 +171,10 @@ func (c *HTTPPersistenceClient) Update(ctx context.Context, id string, doc *Docu
 	return &updated, nil
 }
 
-
-func (c *HTTPPersistenceClient) Delete(ctx context.Context, id string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+"/documents/"+id, nil)
+func (c *HTTPPersistenceClient) Delete(ctx context.Context, requestID, id string) error {
+	req, err := c.newRequest(ctx, http.MethodDelete, "/documents/"+id, requestID, nil)
 	if err != nil {
-		return fmt.Errorf("construir request: %w", err)
+		return err
 	}
 
 	resp, err := c.client.Do(req)
@@ -174,15 +187,15 @@ func (c *HTTPPersistenceClient) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("persistence upstream respondió status %d", resp.StatusCode)
+		return readUpstreamError(resp)
 	}
 	return nil
 }
 
-func (c *HTTPPersistenceClient) FindAll(ctx context.Context) ([]*Document, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/documents", nil)
+func (c *HTTPPersistenceClient) FindAll(ctx context.Context, requestID string) ([]*Document, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/documents", requestID, nil)
 	if err != nil {
-		return nil, fmt.Errorf("construir request: %w", err)
+		return nil, err
 	}
 
 	resp, err := c.client.Do(req)
@@ -192,7 +205,7 @@ func (c *HTTPPersistenceClient) FindAll(ctx context.Context) ([]*Document, error
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("persistence upstream respondió status %d", resp.StatusCode)
+		return nil, readUpstreamError(resp)
 	}
 
 	var docs []*Document

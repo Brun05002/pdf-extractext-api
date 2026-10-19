@@ -2,15 +2,15 @@ openapi: 3.0.3
 
 info:
   title: PDF ExtracText API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Microservicio orquestador del Proyecto Cabras. Recibe archivos PDF vía
     multipart/form-data, los reenvía en streaming al microservicio de
     extracción y devuelve el texto extraído al cliente.
 
-    Todos los errores siguen el formato estándar `ErrorResponse`.
-    El header `X-Request-ID` se propaga a los servicios internos y aparece
-    en las respuestas de error para facilitar la trazabilidad.
+    Todos los errores siguen RFC 9457 (`application/problem+json`).
+    El header `X-Request-ID` se propaga a los servicios internos para
+    correlacionar los logs de los tres microservicios.
 
 servers:
   - url: http://localhost:8000
@@ -42,6 +42,9 @@ paths:
         se rechaza con 409 Conflict.
         El archivo se procesa en streaming; su tamaño máximo está limitado
         por `MAX_FILE_SIZE_MB` (20 MB por defecto).
+        Los 4xx y el 503 del extractor se propagan tal cual (con su
+        `Retry-After` en el 503); solo un fallo de red/timeout o un 500
+        del extractor se responde como 502.
       operationId: uploadPdf
       tags:
         - extraction
@@ -76,66 +79,118 @@ paths:
         "400":
           description: Falta el campo multipart `file` o la petición es inválida.
           content:
-            application/json:
+            application/problem+json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ProblemResponse"
               example:
-                code: BAD_REQUEST
-                message: se requiere el campo multipart 'file'
+                type: urn:pdf-extractext:invalid-request
+                title: Petición inválida
+                status: 400
+                detail: se requiere el campo multipart 'file'
+                code: INVALID_REQUEST
         "409":
           description: Ya existe un documento con el mismo checksum (índice único anti-TOCTOU).
           content:
-            application/json:
+            application/problem+json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ProblemResponse"
               example:
+                type: urn:pdf-extractext:conflict
+                title: Conflicto con el recurso
+                status: 409
+                detail: el documento ya existe
                 code: CONFLICT
-                message: el documento ya existe
         "413":
           description: El archivo excede el tamaño máximo permitido.
           content:
-            application/json:
+            application/problem+json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ProblemResponse"
               example:
+                type: urn:pdf-extractext:request-too-large
+                title: Cuerpo demasiado grande
+                status: 413
+                detail: el archivo excede el tamaño máximo permitido
                 code: REQUEST_TOO_LARGE
-                message: el archivo excede el tamaño máximo permitido
         "415":
           description: El archivo no es un PDF.
           content:
-            application/json:
+            application/problem+json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ProblemResponse"
               example:
+                type: urn:pdf-extractext:unsupported-media-type
+                title: Tipo de contenido no soportado
+                status: 415
+                detail: solo se aceptan archivos PDF
                 code: UNSUPPORTED_MEDIA_TYPE
-                message: solo se aceptan archivos PDF
+        "422":
+          description: El contenido del archivo no es un PDF válido (propagado del extractor).
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemResponse"
+              example:
+                type: urn:pdf-extractext:invalid-pdf-content
+                title: Contenido PDF inválido
+                status: 422
+                detail: El contenido recibido no es un PDF válido
+                code: INVALID_PDF_CONTENT
         "500":
           description: Error interno no tipificado.
           content:
-            application/json:
+            application/problem+json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ProblemResponse"
               example:
+                type: urn:pdf-extractext:internal-error
+                title: Error interno del servidor
+                status: 500
+                detail: error interno del servidor
                 code: INTERNAL_ERROR
-                message: error interno del servidor
         "502":
-          description: El servicio de extracción falló o devolvió una respuesta inválida.
+          description: Fallo de red/timeout con el extractor o persistencia, o un 500 del extractor.
           content:
-            application/json:
+            application/problem+json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ProblemResponse"
               example:
+                type: urn:pdf-extractext:bad-gateway
+                title: Fallo en un servicio interno
+                status: 502
+                detail: fallo en el servicio de extracción
                 code: BAD_GATEWAY
-                message: fallo en el servicio de extracción
+        "503":
+          description: |
+            Extractor saturado (backpressure). Propagado del upstream junto con
+            su header `Retry-After`.
+          headers:
+            Retry-After:
+              description: Segundos a esperar antes de reintentar (valor del extractor).
+              schema:
+                type: integer
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemResponse"
+              example:
+                type: urn:pdf-extractext:service-overloaded
+                title: Servicio saturado
+                status: 503
+                detail: Servicio saturado. Reintente más tarde.
+                code: SERVICE_OVERLOADED
         "504":
           description: El servicio de extracción excedió el timeout de 30 segundos.
           content:
-            application/json:
+            application/problem+json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
+                $ref: "#/components/schemas/ProblemResponse"
               example:
+                type: urn:pdf-extractext:gateway-timeout
+                title: Tiempo de espera agotado
+                status: 504
+                detail: el servicio de extracción excedió el tiempo límite
                 code: GATEWAY_TIMEOUT
-                message: el servicio de extracción excedió el tiempo límite
 
 components:
   schemas:
@@ -192,29 +247,57 @@ components:
           description: SHA-256 (hex) de los bytes originales del PDF. Único por documento.
           example: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 
-    ErrorResponse:
+    ProblemResponse:
       type: object
-      description: Formato estándar de error de la API (ver ErrorHandler global).
+      description: Detalle de error RFC 9457 (`application/problem+json`).
       required:
+        - type
+        - title
+        - status
+        - detail
         - code
-        - message
       properties:
+        type:
+          type: string
+          description: URN identificatoria del problema.
+          enum:
+            - urn:pdf-extractext:invalid-request
+            - urn:pdf-extractext:not-found
+            - urn:pdf-extractext:conflict
+            - urn:pdf-extractext:method-not-allowed
+            - urn:pdf-extractext:request-too-large
+            - urn:pdf-extractext:unsupported-media-type
+            - urn:pdf-extractext:invalid-pdf-content
+            - urn:pdf-extractext:service-overloaded
+            - urn:pdf-extractext:bad-gateway
+            - urn:pdf-extractext:gateway-timeout
+            - urn:pdf-extractext:internal-error
+          example: urn:pdf-extractext:invalid-request
+        title:
+          type: string
+          description: Resumen corto del problema (RFC 9457 §3.1).
+          example: Petición inválida
+        status:
+          type: integer
+          description: Código HTTP del problema (RFC 9457 §3.2).
+          example: 400
+        detail:
+          type: string
+          description: Explicación legible orientada a la persona cliente.
+          example: se requiere el campo multipart 'file'
         code:
           type: string
-          description: Código de error machine-readable.
+          description: Miembro de extensión: código machine-readable.
           enum:
-            - BAD_REQUEST
+            - INVALID_REQUEST
             - NOT_FOUND
             - CONFLICT
             - METHOD_NOT_ALLOWED
             - REQUEST_TOO_LARGE
             - UNSUPPORTED_MEDIA_TYPE
+            - INVALID_PDF_CONTENT
+            - SERVICE_OVERLOADED
             - BAD_GATEWAY
-            - SERVICE_UNAVAILABLE
             - GATEWAY_TIMEOUT
             - INTERNAL_ERROR
-          example: BAD_REQUEST
-        message:
-          type: string
-          description: Mensaje legible para humanos.
-          example: se requiere el campo multipart 'file'
+          example: INVALID_REQUEST

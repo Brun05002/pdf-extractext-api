@@ -38,7 +38,7 @@ func TestSave_Created(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(doc)
 	}))
 
-	saved, err := client.Save(context.Background(), &Document{Filename: "a.pdf", ExtractedText: "texto", Checksum: "sum-1"})
+	saved, err := client.Save(context.Background(), "req-1", &Document{Filename: "a.pdf", ExtractedText: "texto", Checksum: "sum-1"})
 	require.NoError(t, err)
 	assert.Equal(t, "doc-123", saved.ID)
 	assert.Equal(t, "a.pdf", saved.Filename)
@@ -51,7 +51,7 @@ func TestSave_Conflict(t *testing.T) {
 		w.WriteHeader(http.StatusConflict)
 	}))
 
-	_, err := client.Save(context.Background(), &Document{Filename: "a.pdf"})
+	_, err := client.Save(context.Background(), "req-1", &Document{Filename: "a.pdf"})
 	assert.ErrorIs(t, err, ErrConflict)
 }
 
@@ -64,7 +64,7 @@ func TestFindByID_OK(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(Document{ID: "doc-123", Filename: "a.pdf", ExtractedText: "texto", Checksum: "sum-1"})
 	}))
 
-	doc, err := client.FindByID(context.Background(), "doc-123")
+	doc, err := client.FindByID(context.Background(), "req-1", "doc-123")
 	require.NoError(t, err)
 	assert.Equal(t, "doc-123", doc.ID)
 	assert.Equal(t, "texto", doc.ExtractedText)
@@ -76,7 +76,7 @@ func TestFindByID_NotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 
-	_, err := client.FindByID(context.Background(), "inexistente")
+	_, err := client.FindByID(context.Background(), "req-1", "inexistente")
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -92,7 +92,7 @@ func TestFindAll_OK(t *testing.T) {
 		})
 	}))
 
-	docs, err := client.FindAll(context.Background())
+	docs, err := client.FindAll(context.Background(), "req-1")
 	require.NoError(t, err)
 	require.Len(t, docs, 2)
 	assert.Equal(t, "doc-1", docs[0].ID)
@@ -112,7 +112,7 @@ func TestUpdate_OK(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(Document{ID: "doc-1", Filename: doc.Filename, ExtractedText: "texto", Checksum: "sum-1"})
 	}))
 
-	updated, err := client.Update(context.Background(), "doc-1", &Document{Filename: "renombrado.pdf"})
+	updated, err := client.Update(context.Background(), "req-1", "doc-1", &Document{Filename: "renombrado.pdf"})
 	require.NoError(t, err)
 	assert.Equal(t, "doc-1", updated.ID)
 	assert.Equal(t, "renombrado.pdf", updated.Filename)
@@ -123,7 +123,7 @@ func TestUpdate_NotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 
-	_, err := client.Update(context.Background(), "inexistente", &Document{Filename: "x.pdf"})
+	_, err := client.Update(context.Background(), "req-1", "inexistente", &Document{Filename: "x.pdf"})
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -132,7 +132,7 @@ func TestUpdate_Conflict(t *testing.T) {
 		w.WriteHeader(http.StatusConflict)
 	}))
 
-	_, err := client.Update(context.Background(), "doc-1", &Document{Filename: "duplicado.pdf"})
+	_, err := client.Update(context.Background(), "req-1", "doc-1", &Document{Filename: "duplicado.pdf"})
 	assert.ErrorIs(t, err, ErrConflict)
 }
 
@@ -143,7 +143,7 @@ func TestDelete_NoContent(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	require.NoError(t, client.Delete(context.Background(), "doc-1"))
+	require.NoError(t, client.Delete(context.Background(), "req-1", "doc-1"))
 }
 
 func TestDelete_NotFound(t *testing.T) {
@@ -151,7 +151,7 @@ func TestDelete_NotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 
-	assert.ErrorIs(t, client.Delete(context.Background(), "inexistente"), ErrNotFound)
+	assert.ErrorIs(t, client.Delete(context.Background(), "req-1", "inexistente"), ErrNotFound)
 }
 
 func TestFindAll_UpstreamError(t *testing.T) {
@@ -159,7 +159,7 @@ func TestFindAll_UpstreamError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 
-	_, err := client.FindAll(context.Background())
+	_, err := client.FindAll(context.Background(), "req-1")
 	require.Error(t, err)
 	assert.False(t, errors.Is(err, ErrNotFound))
 	assert.Contains(t, err.Error(), "500")

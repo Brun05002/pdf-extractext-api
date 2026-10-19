@@ -70,7 +70,7 @@ func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("extraction upstream respondió status %d", resp.StatusCode)
+		return nil, readUpstreamError(resp)
 	}
 
 	var result ExtractionResult

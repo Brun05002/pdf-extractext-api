@@ -28,22 +28,16 @@ func RegisterUploadPDF(app *fiber.App, extractor services.ExtractionClient, repo
 func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "se requiere el campo multipart 'file'",
-		})
+		return problem(c, fiber.StatusBadRequest, "INVALID_REQUEST", "se requiere el campo multipart 'file'")
 	}
 
 	if !isPDF(fileHeader.Filename) {
-		return c.Status(fiber.StatusUnsupportedMediaType).JSON(fiber.Map{
-			"error": "solo se aceptan archivos PDF",
-		})
+		return problem(c, fiber.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "solo se aceptan archivos PDF")
 	}
 
 	file, err := fileHeader.Open()
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "no se pudo abrir el archivo subido",
-		})
+		return problem(c, fiber.StatusInternalServerError, "INTERNAL_ERROR", "no se pudo abrir el archivo subido")
 	}
 	defer file.Close()
 
@@ -57,40 +51,29 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 	result, err := h.extractor.Extract(ctx, requestID, fileHeader.Filename, file)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded {
-			return c.Status(fiber.StatusGatewayTimeout).JSON(fiber.Map{
-				"error":      "el servicio de extracción excedió el tiempo límite",
-				"request_id": requestID,
-			})
+			return problem(c, fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "el servicio de extracción excedió el tiempo límite")
 		}
-		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
-			"error":      "fallo en el servicio de extracción",
-			"request_id": requestID,
-		})
+		// FIND-012: 503 con Retry-After y 4xx del extractor se propagan tal cual.
+		return respondUpstream(c, err, "fallo en el servicio de extracción")
 	}
 
 	// Validación del contrato C1.
 	if err := validateExtractionResult(result); err != nil {
-		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
-			"error":      "respuesta del extractor no cumple el contrato: " + err.Error(),
-			"request_id": requestID,
-		})
+		return problem(c, fiber.StatusBadGateway, "BAD_GATEWAY", "respuesta del extractor no cumple el contrato: "+err.Error())
 	}
 
 	// El índice único de checksum es la barrera anti-TOCTOU: un duplicado llega como 409.
-	saved, err := h.repo.Save(ctx, &services.Document{
+	saved, err := h.repo.Save(ctx, requestID, &services.Document{
 		Filename:      result.Filename,
 		ExtractedText: result.ExtractedText,
 		Checksum:      result.Checksum,
 	})
 	if err != nil {
 		if errors.Is(err, services.ErrConflict) {
-			// El error handler global lo traduce a 409 {"code":"CONFLICT",...}.
+			// El error handler global lo traduce a 409 CONFLICT.
 			return err
 		}
-		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{
-			"error":      "fallo en el servicio de persistencia",
-			"request_id": requestID,
-		})
+		return respondUpstream(c, err, "fallo en el servicio de persistencia")
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(saved)

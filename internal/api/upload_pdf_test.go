@@ -59,7 +59,7 @@ func TestUploadPDF_OK(t *testing.T) {
 		Return(validC1Result(), nil)
 
 	repo := new(MockPersistenceRepository)
-	repo.On("Save", mock.Anything, mock.MatchedBy(func(d *services.Document) bool {
+	repo.On("Save", mock.Anything, mock.Anything, mock.MatchedBy(func(d *services.Document) bool {
 		return d.Filename == "documento.pdf" &&
 			d.ExtractedText == "texto" &&
 			d.Checksum == "sum-1"
@@ -88,7 +88,7 @@ func TestUploadPDF_Conflict(t *testing.T) {
 		Return(validC1Result(), nil)
 
 	repo := new(MockPersistenceRepository)
-	repo.On("Save", mock.Anything, mock.Anything).Return(nil, services.ErrConflict)
+	repo.On("Save", mock.Anything, mock.Anything, mock.Anything).Return(nil, services.ErrConflict)
 
 	app := newUploadApp(client, repo)
 	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("pdf"), "req-dup"))
@@ -96,7 +96,7 @@ func TestUploadPDF_Conflict(t *testing.T) {
 
 	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
 	body, _ := io.ReadAll(resp.Body)
-	assert.JSONEq(t, `{"code":"CONFLICT","message":"el documento ya existe"}`, string(body))
+	assertProblemBody(t, string(body), fiber.StatusConflict, "CONFLICT", "conflict", "el documento ya existe")
 	client.AssertExpectations(t)
 	repo.AssertExpectations(t)
 }
@@ -107,7 +107,7 @@ func TestUploadPDF_PropagatesRequestID(t *testing.T) {
 		Return(validC1Result(), nil)
 
 	repo := new(MockPersistenceRepository)
-	repo.On("Save", mock.Anything, mock.Anything).
+	repo.On("Save", mock.Anything, mock.Anything, mock.Anything).
 		Return(&services.Document{ID: "doc-1", Filename: "a.pdf", ExtractedText: "texto", Checksum: "sum-1"}, nil)
 
 	app := newUploadApp(client, repo)
@@ -146,7 +146,7 @@ func TestUploadPDF_Timeout(t *testing.T) {
 	assert.Less(t, time.Since(start), 5*time.Second, "el handler debe cortar por su propio timeout")
 
 	body, _ := io.ReadAll(resp.Body)
-	assert.Contains(t, string(body), "req-timeout")
+	assertProblemBody(t, string(body), fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "gateway-timeout", "el servicio de extracción excedió el tiempo límite")
 	client.AssertExpectations(t)
 	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
 }
@@ -178,8 +178,8 @@ func TestUploadPDF_UpstreamError(t *testing.T) {
 
 	assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
 	body, _ := io.ReadAll(resp.Body)
-	assert.Contains(t, string(body), "req-err")
-	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
+	assertProblemBody(t, string(body), fiber.StatusBadGateway, "BAD_GATEWAY", "bad-gateway", "fallo en el servicio de extracción")
+	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestUploadPDF_InvalidContract(t *testing.T) {
@@ -204,7 +204,7 @@ func TestUploadPDF_PersistenceError(t *testing.T) {
 		Return(validC1Result(), nil)
 
 	repo := new(MockPersistenceRepository)
-	repo.On("Save", mock.Anything, mock.Anything).
+	repo.On("Save", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, errors.New("persistence upstream: connection refused"))
 
 	app := newUploadApp(client, repo)
@@ -213,7 +213,7 @@ func TestUploadPDF_PersistenceError(t *testing.T) {
 
 	assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
 	body, _ := io.ReadAll(resp.Body)
-	assert.Contains(t, string(body), "req-persist")
+	assertProblemBody(t, string(body), fiber.StatusBadGateway, "BAD_GATEWAY", "bad-gateway", "fallo en el servicio de persistencia")
 }
 
 // TestUploadPDF_RequestIDHeaderThroughHTTPClient verifica de punta a punta que
@@ -229,7 +229,7 @@ func TestUploadPDF_RequestIDHeaderThroughHTTPClient(t *testing.T) {
 
 	client := services.NewHTTPExtractionClient(upstream.URL, 5*time.Second)
 	repo := new(MockPersistenceRepository)
-	repo.On("Save", mock.Anything, mock.MatchedBy(func(d *services.Document) bool {
+	repo.On("Save", mock.Anything, mock.Anything, mock.MatchedBy(func(d *services.Document) bool {
 		return d.Filename == "e2e.pdf" && d.ExtractedText == "ok" && d.Checksum == "sum-e2e"
 	})).Return(&services.Document{ID: "doc-e2e", Filename: "e2e.pdf", ExtractedText: "ok", Checksum: "sum-e2e"}, nil)
 
@@ -241,4 +241,84 @@ func TestUploadPDF_RequestIDHeaderThroughHTTPClient(t *testing.T) {
 	assert.Equal(t, fiber.StatusCreated, resp.StatusCode)
 	assert.Equal(t, "req-e2e-999", gotRequestID, "el X-Request-ID debe llegar al upstream")
 	repo.AssertExpectations(t)
+}
+
+// TestUploadPDF_UpstreamPropagation_E2E verifica FIND-012 con el cliente HTTP
+// real: el 503 (con Retry-After) y el 422 del extractor se propagan tal cual;
+// un 500 del extractor se responde como 502 genérico sin filtrar detalle.
+func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {
+	cases := []struct {
+		name          string
+		upstream      func(w http.ResponseWriter)
+		wantStatus    int
+		wantCode      string
+		wantURN       string
+		wantDetail    string
+		wantRetryAfter string
+	}{
+		{
+			name: "503 con Retry-After se propaga con el header",
+			upstream: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.Header().Set("Retry-After", "7")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"type":"urn:pdf-extractext:service-overloaded","title":"Servicio saturado","status":503,"detail":"Servicio saturado. Reintente más tarde.","code":"SERVICE_OVERLOADED"}`))
+			},
+			wantStatus:     fiber.StatusServiceUnavailable,
+			wantCode:       "SERVICE_OVERLOADED",
+			wantURN:        "service-overloaded",
+			wantDetail:     "Servicio saturado. Reintente más tarde.",
+			wantRetryAfter: "7",
+		},
+		{
+			name: "422 INVALID_PDF_CONTENT se propaga tal cual",
+			upstream: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = w.Write([]byte(`{"type":"urn:pdf-extractext:invalid-pdf-content","title":"Contenido PDF inválido","status":422,"detail":"El contenido recibido no es un PDF válido","code":"INVALID_PDF_CONTENT"}`))
+			},
+			wantStatus: fiber.StatusUnprocessableEntity,
+			wantCode:   "INVALID_PDF_CONTENT",
+			wantURN:    "invalid-pdf-content",
+			wantDetail: "El contenido recibido no es un PDF válido",
+		},
+		{
+			name: "500 del extractor se responde 502 sin detalle interno",
+			upstream: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/problem+json")
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = w.Write([]byte(`{"type":"urn:pdf-extractext:internal-error","title":"Error interno del servidor","status":500,"detail":"Fallo inesperado procesando el PDF","code":"INTERNAL_ERROR"}`))
+			},
+			wantStatus: fiber.StatusBadGateway,
+			wantCode:   "BAD_GATEWAY",
+			wantURN:    "bad-gateway",
+			wantDetail: "fallo en el servicio de extracción",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				tc.upstream(w)
+			}))
+			defer upstream.Close()
+
+			client := services.NewHTTPExtractionClient(upstream.URL, 5*time.Second)
+			repo := new(MockPersistenceRepository)
+			app := newUploadApp(client, repo)
+
+			resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("pdf"), "req-prop"))
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			body, _ := io.ReadAll(resp.Body)
+			assertProblemBody(t, string(body), tc.wantStatus, tc.wantCode, tc.wantURN, tc.wantDetail)
+			if tc.wantRetryAfter != "" {
+				assert.Equal(t, tc.wantRetryAfter, resp.Header.Get("Retry-After"), "el Retry-After upstream debe conservarse")
+			} else {
+				assert.Empty(t, resp.Header.Get("Retry-After"))
+			}
+			repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
 }

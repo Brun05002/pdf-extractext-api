@@ -56,8 +56,9 @@ func TestExtractionClient_UpstreamError(t *testing.T) {
 	client := NewHTTPExtractionClient(server.URL, 3*time.Second)
 
 	_, err := client.Extract(t.Context(), "test-rid", "doc.pdf", strings.NewReader("pdf"))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "extraction upstream")
+	var ue *UpstreamError
+	require.ErrorAs(t, err, &ue, "el error upstream debe preservarse como UpstreamError (FIND-012)")
+	assert.Equal(t, http.StatusInternalServerError, ue.Status)
 }
 
 func TestExtractionClient_Timeout(t *testing.T) {

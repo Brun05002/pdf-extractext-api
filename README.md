@@ -74,8 +74,10 @@ reenvía al extractor streameando en memoria. No persiste nada.
 | 400 | Falta el campo multipart `file` |
 | 413 | El cuerpo supera `MAX_FILE_SIZE_MB` (rechazado por `BodyLimit`) |
 | 415 | El archivo no tiene extensión `.pdf` |
+| 422 | El extractor rechazó el contenido (`INVALID_PDF_CONTENT`), propagado tal cual |
 | 500 | No se pudo abrir el archivo subido |
-| 502 | Fallo del upstream de extracción |
+| 502 | Fallo de red/timeout o `500` del extractor |
+| 503 | Extractor saturado (`SERVICE_OVERLOADED`), propagado con su `Retry-After` |
 
 ### `POST /upload-pdf`
 
@@ -92,34 +94,43 @@ propagación de `X-Request-ID` hacia el extractor.
 | 400 | Falta el campo multipart `file` |
 | 413 | El cuerpo supera `MAX_FILE_SIZE_MB` |
 | 415 | El archivo no tiene extensión `.pdf` |
-| 502 | Fallo del extractor o del servicio de persistencia |
+| 422 | Contenido PDF inválido, propagado del extractor |
+| 502 | Fallo de red/timeout del extractor o de persistencia |
+| 503 | Extractor saturado, propagado con su `Retry-After` |
 | 504 | El extractor excedió el timeout |
 
 ### `/documents`
 
 - `GET /documents` → `200` con la lista de
   `{id, filename, extracted_text, checksum}`.
-- `GET /documents/{id}` → `200` con el documento; `404` si no existe.
+- `GET /documents/{id}` → `200` con el documento; `404` si no existe; `400` si el
+  id no es hexadecimal de 24 caracteres (validado antes de llamar a Persistence).
 - `PATCH /documents/{id}` → `200`; renombra (`{"filename": "..."}`); `400` si el
-  cuerpo es inválido; `404`; `409`.
-- `DELETE /documents/{id}` → `204`; `404` si no existe.
+  cuerpo o el id son inválidos; `404`; `409`.
+- `DELETE /documents/{id}` → `204`; `400` si el id es inválido; `404`.
 
-### Formato de error
+### Formato de error (RFC 9457)
 
-La traducción global (`CustomErrorHandler`) usa el envelope estándar
-`{"code": "...", "message": "..."}`:
+Todos los errores responden `Content-Type: application/problem+json` con los
+campos `type` (URN `urn:pdf-extractext:<slug>`), `title`, `status`, `detail` +
+el miembro de extensión `code`:
 
 ```json
-{ "code": "NOT_FOUND", "message": "documento no encontrado" }
+{
+  "type": "urn:pdf-extractext:not-found",
+  "title": "Recurso no encontrado",
+  "status": 404,
+  "detail": "documento no encontrado",
+  "code": "NOT_FOUND"
+}
 ```
 
-Códigos posibles: `BAD_REQUEST`, `NOT_FOUND`, `METHOD_NOT_ALLOWED`,
-`CONFLICT`, `REQUEST_TOO_LARGE`, `UNSUPPORTED_MEDIA_TYPE`, `BAD_GATEWAY`,
-`GATEWAY_TIMEOUT`, `SERVICE_UNAVAILABLE`, `INTERNAL_ERROR`.
-
-> **Deuda conocida:** los caminos 400/415/500/502/504 de `/extract` y
-> `/upload-pdf` todavía responden con el formato legacy `{"error": "..."}`
-> (y `{"error", "request_id"}` en `/upload-pdf`) en lugar del envelope estándar.
+Códigos: `INVALID_REQUEST` (400), `NOT_FOUND` (404), `METHOD_NOT_ALLOWED`
+(405), `CONFLICT` (409), `UNSUPPORTED_MEDIA_TYPE` (415), `REQUEST_TOO_LARGE`
+(413), `INVALID_PDF_CONTENT` (422), `BAD_GATEWAY` (502), `GATEWAY_TIMEOUT`
+(504), `SERVICE_OVERLOADED` (503), `INTERNAL_ERROR` (500). Los errores de
+upstream (4xx/503) se re-emiten preservando su `type`, `code` y `detail`; el
+header `X-Request-ID` correlaciona los logs de los tres servicios.
 
 ## Desarrollo
 
