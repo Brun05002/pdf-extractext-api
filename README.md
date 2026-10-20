@@ -36,7 +36,7 @@ levanta.
 | Variable | Requerida | Default | Descripción |
 |---|---|---|---|
 | `PORT` | No | `:8000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
-| `EXTRACTION_URL` | **Sí** | — | URL base del microservicio de extracción. Ej.: `http://extraction:8001` |
+| `EXTRACTION_URL` | **Sí** | — | URL base del microservicio de extracción. Ruta principal del stack: `http://traefik:8090` (entrypoint interno de Traefik). `http://extraction:8001` solo para uso aislado sin Traefik |
 | `PERSISTENCE_URL` | **Sí** | — | URL base del microservicio de persistencia. Ej.: `http://persistence:8002`. La consumen `/upload-pdf` y el CRUD `/documents` |
 | `MAX_FILE_SIZE_MB` | No | `16` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO (fronteras + headers + archivo) |
 
@@ -143,6 +143,8 @@ make vet         # go vet ./...
 make test        # go test -race -cover ./...
 
 # Ejecutar en local (requiere las URLs del extractor y del persistence)
+# Ruta del stack: EXTRACTION_URL=http://traefik:8090 (sin publicar al host);
+# el ejemplo siguiente es solo para aislado sin Traefik:
 export EXTRACTION_URL=http://localhost:8001
 export PERSISTENCE_URL=http://localhost:8002
 go run ./cmd/api
@@ -155,14 +157,16 @@ distroless contra `GET /`.
 
 ```bash
 docker build -t pdf-extractext-api:local .
+# Ruta principal del stack (Traefik enruta por Host hacia Extraction):
 docker run --rm -p 8000:8000 \
-  -e EXTRACTION_URL=http://extraction:8001 \
+  -e EXTRACTION_URL=http://traefik:8090 \
   -e PERSISTENCE_URL=http://persistence:8002 \
   pdf-extractext-api:local
 ```
 
 Dentro de las redes del compose de `pdf-extractext-infrastructure`, los hosts
-`extraction` y `persistence` resuelven por DNS de Docker.
+`traefik`, `extraction` y `persistence` resuelven por DNS de Docker. Sin
+Traefik (aislado), usar `EXTRACTION_URL=http://extraction:8001`.
 
 ## Estructura
 

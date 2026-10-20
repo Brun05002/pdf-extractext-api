@@ -3,8 +3,15 @@
 .git
 .gitignore
 
-# Documentación: no se necesita para compilar
+# Documentación y artefactos de repo: no se necesitan para compilar
 *.md
+docs/
+tests/
+.github/
+.golangci.yml
+Makefile
+docker-compose.yml
+Dockerfile
 
 # Artefactos locales
 *.out

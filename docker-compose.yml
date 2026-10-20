@@ -5,18 +5,15 @@ services:
     restart: unless-stopped
     environment:
       PORT: ":8000"
-      EXTRACTION_URL: ${EXTRACTION_URL:?definir EXTRACTION_URL}
-      PERSISTENCE_URL: ${PERSISTENCE_URL:?definir PERSISTENCE_URL}
-      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-20}
+      # Ruta principal del stack: entrypoint interno de Traefik (ver D3 de Infrastructure).
+      EXTRACTION_URL: ${EXTRACTION_URL:-http://traefik:8090}
+      PERSISTENCE_URL: ${PERSISTENCE_URL:-http://persistence:8002}
+      MAX_FILE_SIZE_MB: ${MAX_FILE_SIZE_MB:-16}
     networks:
-      - cabras-net
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.pdf-extractext-api.rule: "PathPrefix(`/`)"
-      traefik.http.routers.pdf-extractext-api.entrypoints: "web"
-      traefik.http.services.pdf-extractext-api.loadbalancer.server.port: "8000"
-      traefik.docker.network: "cabras-net"
+      - services
 
+# El ruteo público (Traefik) lo declara pdf-extractext-infrastructure.
 networks:
-  cabras-net:
+  services:
     external: true
+    name: pdf-extractext_services
