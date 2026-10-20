@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -42,9 +45,24 @@ func main() {
 	api.RegisterUploadPDF(app, extraction, persistence)
 	api.RegisterDocuments(app, persistence)
 
-	slog.Info("iniciando servidor", "puerto", cfg.Port)
-	if err := app.Listen(cfg.Port); err != nil {
-		slog.Error("el servidor terminó con error", "error", err)
+	// SIGINT/SIGTERM: drenar requests en vuelo antes de salir (PID 1 del contenedor).
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		slog.Info("iniciando servidor", "puerto", cfg.Port)
+		if err := app.Listen(cfg.Port); err != nil {
+			slog.Error("el servidor terminó con error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	<-ctx.Done()
+	slog.Info("señal de apagado recibida; drenando conexiones")
+	// 10s < stop_grace_period del compose (15s): sin esto Docker envía SIGKILL.
+	if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
+		slog.Error("error durante el apagado", "error", err)
 		os.Exit(1)
 	}
+	slog.Info("servidor detenido correctamente")
 }
