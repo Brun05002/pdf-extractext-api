@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -244,13 +245,27 @@ func TestGetDocumentByID_Upstream400_Propagates(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
-func TestListDocuments_UpstreamError(t *testing.T) {
+// Fallo de red contra Persistence -> 502 (coherente con openapi.yaml).
+func TestListDocuments_NetworkError_Returns502(t *testing.T) {
 	repo := new(MockPersistenceRepository)
 	repo.On("FindAll", mock.Anything, mock.Anything).Return(nil, errors.New("persistence upstream: connection refused"))
 
 	status, body := getJSON(t, newDocumentsApp(repo), "/documents")
 
-	assert.Equal(t, fiber.StatusInternalServerError, status)
-	assertProblemBody(t, body, fiber.StatusInternalServerError, "INTERNAL_ERROR", "internal-error", "error interno del servidor")
+	assert.Equal(t, fiber.StatusBadGateway, status)
+	assertProblemBody(t, body, fiber.StatusBadGateway, "BAD_GATEWAY", "bad-gateway", "fallo en el servicio de persistencia")
+	repo.AssertExpectations(t)
+}
+
+// Timeout contra Persistence -> 504.
+func TestGetDocumentByID_UpstreamTimeout_Returns504(t *testing.T) {
+	repo := new(MockPersistenceRepository)
+	repo.On("FindByID", mock.Anything, mock.Anything, "507f1f77bcf86cd799439011").
+		Return(nil, &url.Error{Op: "Get", URL: "http://persistence:8002/documents/x", Err: context.DeadlineExceeded})
+
+	status, body := getJSON(t, newDocumentsApp(repo), "/documents/507f1f77bcf86cd799439011")
+
+	assert.Equal(t, fiber.StatusGatewayTimeout, status)
+	assertProblemBody(t, body, fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "gateway-timeout", "un servicio interno excedió el tiempo límite")
 	repo.AssertExpectations(t)
 }

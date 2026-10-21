@@ -1,12 +1,22 @@
 package api
 
 import (
+	"errors"
 	"regexp"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/pdf-extractext/api/internal/core"
 	"github.com/pdf-extractext/api/internal/services"
 )
+
+// respondRepoError mapea errores de Persistence: 404/409 de dominio se
+// resuelven vía CustomErrorHandler; el resto cae en respondUpstream (502/504).
+func respondRepoError(c *fiber.Ctx, err error, detail string) error {
+	if errors.Is(err, services.ErrNotFound) || errors.Is(err, services.ErrConflict) {
+		return err
+	}
+	return respondUpstream(c, err, detail)
+}
 
 // objectIDPattern valida el id hex-24 de Mongo antes de llamar al upstream.
 var objectIDPattern = regexp.MustCompile(`^[0-9a-f]{24}$`)
@@ -46,7 +56,7 @@ func (h *documentsHandler) update(c *fiber.Ctx) error {
 
 	updated, err := h.repo.Update(c.Context(), core.RequestIDFrom(c), id, &doc)
 	if err != nil {
-		return err // ErrNotFound -> 404, ErrConflict -> 409, UpstreamError -> tal cual
+		return respondRepoError(c, err, "fallo en el servicio de persistencia")
 	}
 	return c.Status(fiber.StatusOK).JSON(updated)
 }
@@ -57,7 +67,7 @@ func (h *documentsHandler) delete(c *fiber.Ctx) error {
 		return err
 	}
 	if err := h.repo.Delete(c.Context(), core.RequestIDFrom(c), id); err != nil {
-		return err // ErrNotFound -> 404
+		return respondRepoError(c, err, "fallo en el servicio de persistencia")
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
@@ -65,7 +75,7 @@ func (h *documentsHandler) delete(c *fiber.Ctx) error {
 func (h *documentsHandler) list(c *fiber.Ctx) error {
 	docs, err := h.repo.FindAll(c.Context(), core.RequestIDFrom(c))
 	if err != nil {
-		return err // traducido por CustomErrorHandler
+		return respondRepoError(c, err, "fallo en el servicio de persistencia")
 	}
 	return c.Status(fiber.StatusOK).JSON(docs)
 }
@@ -77,7 +87,7 @@ func (h *documentsHandler) getByID(c *fiber.Ctx) error {
 	}
 	doc, err := h.repo.FindByID(c.Context(), core.RequestIDFrom(c), id)
 	if err != nil {
-		return err // ErrNotFound -> 404 vía CustomErrorHandler
+		return respondRepoError(c, err, "fallo en el servicio de persistencia")
 	}
 	return c.Status(fiber.StatusOK).JSON(doc)
 }

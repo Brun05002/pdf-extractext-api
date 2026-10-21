@@ -138,6 +138,8 @@ paths:
                   $ref: "#/components/schemas/Document"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
 
   /documents/{id}:
     parameters:
@@ -169,6 +171,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
     patch:
       summary: Renombra un documento
       description: "Único campo admitido: `filename`."
@@ -198,6 +202,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
     delete:
       summary: Elimina un documento
       operationId: deleteDocument
@@ -214,6 +220,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
 
 components:
   parameters:
