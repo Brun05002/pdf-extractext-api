@@ -35,6 +35,7 @@ func main() {
 	})
 
 	app.Use(core.RequestID())
+	app.Use(core.Logger())
 	api.RegisterRoot(app)
 
 	// Timeout estricto: backpressure contra un upstream lento.

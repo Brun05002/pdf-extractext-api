@@ -1,7 +1,9 @@
 package core
 
 import (
+	"bytes"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -93,4 +95,47 @@ func TestRequestIDFrom_ReadsLocals(t *testing.T) {
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, "rid-77", stringBody(t, resp))
+}
+
+// captureLogs redirige el logger default durante el test.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+func TestLogger_RegistraRequestConRequestID(t *testing.T) {
+	buf := captureLogs(t)
+
+	app := fiber.New()
+	app.Use(RequestID())
+	app.Use(Logger())
+	app.Get("/hola", func(c *fiber.Ctx) error { return c.SendString("ok") })
+
+	resp, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/hola", nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	log := buf.String()
+	assert.Contains(t, log, `"method":"GET"`)
+	assert.Contains(t, log, `"path":"/hola"`)
+	assert.Contains(t, log, `"status":200`)
+	assert.Contains(t, log, resp.Header.Get("X-Request-ID"), "debe incluir el X-Request-ID")
+}
+
+func TestLogger_OmiteHealthcheck(t *testing.T) {
+	buf := captureLogs(t)
+
+	app := fiber.New()
+	app.Use(RequestID())
+	app.Use(Logger())
+	app.Get("/", func(c *fiber.Ctx) error { return c.SendStatus(fiber.StatusOK) })
+
+	resp, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/", nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, resp.StatusCode)
+	assert.Empty(t, buf.String(), "GET / no debe registrarse en el access-log")
 }
