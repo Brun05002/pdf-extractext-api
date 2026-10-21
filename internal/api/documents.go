@@ -44,7 +44,7 @@ func (h *documentsHandler) update(c *fiber.Ctx) error {
 		return problem(c, fiber.StatusBadRequest, "INVALID_REQUEST", "el cuerpo de la petición no es un JSON válido")
 	}
 
-	updated, err := h.repo.Update(c.Context(), c.Get(core.RequestIDHeader), id, &doc)
+	updated, err := h.repo.Update(c.Context(), core.RequestIDFrom(c), id, &doc)
 	if err != nil {
 		return err // ErrNotFound -> 404, ErrConflict -> 409, UpstreamError -> tal cual
 	}
@@ -56,14 +56,14 @@ func (h *documentsHandler) delete(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	if err := h.repo.Delete(c.Context(), c.Get(core.RequestIDHeader), id); err != nil {
+	if err := h.repo.Delete(c.Context(), core.RequestIDFrom(c), id); err != nil {
 		return err // ErrNotFound -> 404
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
 func (h *documentsHandler) list(c *fiber.Ctx) error {
-	docs, err := h.repo.FindAll(c.Context(), c.Get(core.RequestIDHeader))
+	docs, err := h.repo.FindAll(c.Context(), core.RequestIDFrom(c))
 	if err != nil {
 		return err // traducido por CustomErrorHandler
 	}
@@ -75,7 +75,7 @@ func (h *documentsHandler) getByID(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	doc, err := h.repo.FindByID(c.Context(), c.Get(core.RequestIDHeader), id)
+	doc, err := h.repo.FindByID(c.Context(), core.RequestIDFrom(c), id)
 	if err != nil {
 		return err // ErrNotFound -> 404 vía CustomErrorHandler
 	}

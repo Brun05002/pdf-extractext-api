@@ -36,8 +36,8 @@ func (h *extractHandler) handle(c *fiber.Ctx) error {
 	}
 	defer file.Close()
 
-	// multipart.File es io.Reader: stream directo al upstream.
-	result, err := h.client.Extract(c.Context(), c.Get(core.RequestIDHeader), fileHeader.Filename, file)
+	// El Request-ID vive en Locals: el middleware lo genera si el cliente no lo envió.
+	result, err := h.client.Extract(c.Context(), core.RequestIDFrom(c), fileHeader.Filename, file)
 	if err != nil {
 		return respondUpstream(c, err, "fallo en el servicio de extracción")
 	}

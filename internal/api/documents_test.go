@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/pdf-extractext/api/internal/core"
 	"github.com/pdf-extractext/api/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -62,6 +63,7 @@ func (m *MockPersistenceRepository) Delete(ctx context.Context, requestID, id st
 // de errores de dominio end-to-end.
 func newDocumentsApp(repo services.PersistenceRepository) *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: CustomErrorHandler})
+	app.Use(core.RequestID())
 	RegisterDocuments(app, repo)
 	return app
 }

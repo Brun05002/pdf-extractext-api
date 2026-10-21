@@ -66,3 +66,31 @@ func TestRequestID_AvailableInLocals(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "rid-42", stringBody(t, resp))
 }
+
+// Sin el middleware, RequestIDFrom devuelve vacío (no pánico).
+func TestRequestIDFrom_NoMiddleware_ReturnsEmpty(t *testing.T) {
+	app := fiber.New()
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString(RequestIDFrom(c))
+	})
+
+	resp, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/", nil))
+	require.NoError(t, err)
+	assert.Empty(t, stringBody(t, resp))
+}
+
+// RequestIDFrom refleja lo que el middleware guardó en Locals.
+func TestRequestIDFrom_ReadsLocals(t *testing.T) {
+	app := fiber.New()
+	app.Use(RequestID())
+	app.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString(RequestIDFrom(c))
+	})
+
+	req := httptest.NewRequest(fiber.MethodGet, "/", nil)
+	req.Header.Set("X-Request-ID", "rid-77")
+
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, "rid-77", stringBody(t, resp))
+}

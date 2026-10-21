@@ -41,8 +41,8 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 	}
 	defer file.Close()
 
-	// X-Request-ID entrante (o el generado por el middleware).
-	requestID := c.Get(core.RequestIDHeader)
+	// El Request-ID vive en Locals: el middleware lo genera si el cliente no lo envió.
+	requestID := core.RequestIDFrom(c)
 
 	// Timeout estricto derivado del request original.
 	ctx, cancel := context.WithTimeout(c.Context(), uploadTimeout)

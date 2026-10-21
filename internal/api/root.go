@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/pdf-extractext/api/internal/core"
 )
 
 // RegisterRoot expone GET / como endpoint de health público. Lo consumes el
@@ -13,7 +14,7 @@ func RegisterRoot(app *fiber.App) {
 	app.Get("/", func(c *fiber.Ctx) error {
 		slog.Info("healthcheck solicitado",
 			"ip", c.IP(),
-			"request_id", c.Get("X-Request-ID"),
+			"request_id", core.RequestIDFrom(c),
 		)
 		return c.JSON(fiber.Map{
 			"service": "pdf-extractext-api",

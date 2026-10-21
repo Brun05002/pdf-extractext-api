@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/pdf-extractext/api/internal/core"
 	"github.com/pdf-extractext/api/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -21,6 +22,7 @@ import (
 
 func newUploadApp(client services.ExtractionClient, repo services.PersistenceRepository) *fiber.App {
 	app := fiber.New(fiber.Config{ErrorHandler: CustomErrorHandler})
+	app.Use(core.RequestID())
 	RegisterUploadPDF(app, client, repo)
 	return app
 }

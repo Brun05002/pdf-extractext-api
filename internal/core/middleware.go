@@ -18,3 +18,9 @@ func RequestID() fiber.Handler {
 		return c.Next()
 	}
 }
+
+// RequestIDFrom devuelve el X-Request-ID del contexto (entrante o generado por RequestID).
+func RequestIDFrom(c *fiber.Ctx) string {
+	rid, _ := c.Locals("requestID").(string)
+	return rid
+}

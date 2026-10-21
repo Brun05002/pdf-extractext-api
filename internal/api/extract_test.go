@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/pdf-extractext/api/internal/core"
 	"github.com/pdf-extractext/api/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -36,6 +37,7 @@ func (m *MockExtractionClient) Extract(ctx context.Context, requestID, filename 
 
 func newExtractApp(client services.ExtractionClient, maxSizeMB int64) *fiber.App {
 	app := fiber.New(fiber.Config{BodyLimit: int(maxSizeMB) * 1024 * 1024})
+	app.Use(core.RequestID())
 	RegisterExtract(app, client, maxSizeMB)
 	return app
 }
