@@ -40,7 +40,9 @@ paths:
         page_count}` (contrato C1). No persiste nada. El tamaño máximo del
         multipart completo lo fija `MAX_FILE_SIZE_MB` (16 MB por defecto).
         Los 4xx y el 503 del extractor se propagan tal cual; un fallo de
-        red/timeout o un 500 del extractor se responde 502.
+        red/timeout o un 500 del extractor se responde 502. Una respuesta
+        incompleta del extractor (`content` vacío o `page_count` 0) también
+        se responde 502: no es un C1 válido.
       operationId: extractPdf
       tags:
         - extraction

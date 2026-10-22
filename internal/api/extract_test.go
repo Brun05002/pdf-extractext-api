@@ -165,3 +165,30 @@ func TestExtract_UpstreamError(t *testing.T) {
 
 	assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
 }
+
+// Respuesta del extractor sin content o sin páginas: C1 incompleto -> 502.
+func TestExtract_IncompleteUpstreamResponse(t *testing.T) {
+	cases := []struct {
+		name   string
+		result *services.ExtractionResult
+	}{
+		{"content vacío", &services.ExtractionResult{Content: "", PageCount: 3}},
+		{"page_count cero", &services.ExtractionResult{Content: "texto", PageCount: 0}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := new(MockExtractionClient)
+			client.On("Extract", mock.Anything, mock.Anything, "doc.pdf", mock.Anything).
+				Return(tc.result, nil)
+
+			app := newExtractApp(client, 5)
+			resp, err := app.Test(multipartRequest(t, "file", "doc.pdf", []byte("pdf")))
+			require.NoError(t, err)
+
+			assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
+			body, _ := io.ReadAll(resp.Body)
+			assert.Contains(t, string(body), "BAD_GATEWAY")
+		})
+	}
+}

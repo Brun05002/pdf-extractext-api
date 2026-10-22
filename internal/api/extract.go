@@ -42,6 +42,11 @@ func (h *extractHandler) handle(c *fiber.Ctx) error {
 		return respondUpstream(c, err, "fallo en el servicio de extracción")
 	}
 
+	// Respuesta incompleta del extractor: no es un C1 válido.
+	if result.Content == "" || result.PageCount == 0 {
+		return problem(c, fiber.StatusBadGateway, "BAD_GATEWAY", "el servicio de extracción devolvió una respuesta incompleta")
+	}
+
 	// Contrato público: exactamente {content, page_count}; el endpoint es 100% stateless.
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"content":    result.Content,
