@@ -247,7 +247,7 @@ func TestUploadPDF_RequestIDHeaderThroughHTTPClient(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	client := services.NewHTTPExtractionClient(upstream.URL, 5*time.Second)
+	client := services.NewHTTPExtractionClient(upstream.URL, "", 5*time.Second)
 	repo := new(MockPersistenceRepository)
 	repo.On("Save", mock.Anything, mock.Anything, mock.MatchedBy(func(d *services.Document) bool {
 		return d.Filename == "e2e.pdf" && d.ExtractedText == "ok" && d.Checksum == "sum-e2e"
@@ -323,7 +323,7 @@ func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {
 			}))
 			defer upstream.Close()
 
-			client := services.NewHTTPExtractionClient(upstream.URL, 5*time.Second)
+			client := services.NewHTTPExtractionClient(upstream.URL, "", 5*time.Second)
 			repo := new(MockPersistenceRepository)
 			app := newUploadApp(client, repo)
 

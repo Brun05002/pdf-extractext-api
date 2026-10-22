@@ -9,9 +9,13 @@ import (
 type Config struct {
 	Port           string
 	ExtractionURL  string
+	ExtractionHost string
 	PersistenceURL string
 	MaxFileSizeMB  int64
 }
+
+// defaultExtractionHost es el Host que el router interno de Traefik (:8090) usa para enrutar a Extraction.
+const defaultExtractionHost = "extraction.pdf-extractext.localhost"
 
 func LoadConfig() (*Config, error) {
 	port := os.Getenv("PORT")
@@ -22,6 +26,11 @@ func LoadConfig() (*Config, error) {
 	extractionURL := os.Getenv("EXTRACTION_URL")
 	if extractionURL == "" {
 		return nil, fmt.Errorf("EXTRACTION_URL es obligatoria")
+	}
+
+	extractionHost := os.Getenv("EXTRACTION_HOST")
+	if extractionHost == "" {
+		extractionHost = defaultExtractionHost
 	}
 
 	persistenceURL := os.Getenv("PERSISTENCE_URL")
@@ -37,6 +46,7 @@ func LoadConfig() (*Config, error) {
 	return &Config{
 		Port:           port,
 		ExtractionURL:  extractionURL,
+		ExtractionHost: extractionHost,
 		PersistenceURL: persistenceURL,
 		MaxFileSizeMB:  maxFileSize,
 	}, nil

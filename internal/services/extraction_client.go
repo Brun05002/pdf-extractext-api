@@ -27,12 +27,14 @@ type ExtractionClient interface {
 // HTTPExtractionClient envía el stream al upstream con timeout estricto.
 type HTTPExtractionClient struct {
 	baseURL string
+	host    string
 	client  *http.Client
 }
 
-func NewHTTPExtractionClient(baseURL string, timeout time.Duration) *HTTPExtractionClient {
+func NewHTTPExtractionClient(baseURL, host string, timeout time.Duration) *HTTPExtractionClient {
 	return &HTTPExtractionClient{
 		baseURL: baseURL,
+		host:    host,
 		client:  newHTTPClient(timeout),
 	}
 }
@@ -58,7 +60,9 @@ func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename 
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	// El router interno de Traefik (:8090) enruta a Extraction por Host.
-	req.Host = "extraction.pdf-extractext.localhost"
+	if c.host != "" {
+		req.Host = c.host
+	}
 	if requestID != "" {
 		req.Header.Set("X-Request-ID", requestID)
 	}

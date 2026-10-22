@@ -19,7 +19,7 @@ func TestExtractionClient_StreamsBodyAndParsesResponse(t *testing.T) {
 	server := httptest.NewServer(httpServerHandler(t, payload))
 	defer server.Close()
 
-	client := NewHTTPExtractionClient(server.URL, 3*time.Second)
+	client := NewHTTPExtractionClient(server.URL, "extraction.test", 3*time.Second)
 
 	result, err := client.Extract(t.Context(), "test-rid", "informe.pdf", strings.NewReader(payload))
 	require.NoError(t, err)
@@ -48,13 +48,27 @@ func httpServerHandler(t *testing.T, expected string) http.HandlerFunc {
 	}
 }
 
+func TestExtractionClient_SetsConfiguredHost(t *testing.T) {
+	var gotHost string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		w.Write([]byte(`{"content":"texto","page_count":1}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPExtractionClient(server.URL, "extraction.custom.host", 3*time.Second)
+	_, err := client.Extract(t.Context(), "rid", "doc.pdf", strings.NewReader("pdf"))
+	require.NoError(t, err)
+	assert.Equal(t, "extraction.custom.host", gotHost)
+}
+
 func TestExtractionClient_UpstreamError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
 
-	client := NewHTTPExtractionClient(server.URL, 3*time.Second)
+	client := NewHTTPExtractionClient(server.URL, "extraction.test", 3*time.Second)
 
 	_, err := client.Extract(t.Context(), "test-rid", "doc.pdf", strings.NewReader("pdf"))
 	var ue *UpstreamError
@@ -69,7 +83,7 @@ func TestExtractionClient_Timeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewHTTPExtractionClient(server.URL, 50*time.Millisecond)
+	client := NewHTTPExtractionClient(server.URL, "extraction.test", 50*time.Millisecond)
 
 	_, err := client.Extract(t.Context(), "test-rid", "doc.pdf", strings.NewReader("pdf"))
 	require.Error(t, err, "el timeout estricto debe cortar goroutines colgadas")

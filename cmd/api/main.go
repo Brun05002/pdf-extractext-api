@@ -39,7 +39,7 @@ func main() {
 	api.RegisterRoot(app)
 
 	// Timeout estricto: backpressure contra un upstream lento.
-	extraction := services.NewHTTPExtractionClient(cfg.ExtractionURL, 30*time.Second)
+	extraction := services.NewHTTPExtractionClient(cfg.ExtractionURL, cfg.ExtractionHost, 30*time.Second)
 	persistence := services.NewHTTPPersistenceClient(cfg.PersistenceURL, 10*time.Second)
 
 	api.RegisterExtract(app, extraction, cfg.MaxFileSizeMB)
