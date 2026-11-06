@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,7 +18,7 @@ func newTestClient(t *testing.T, handler http.Handler) *HTTPPersistenceClient {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return NewHTTPPersistenceClient(server.URL, 5*time.Second)
+	return NewHTTPPersistenceClient(server.URL, "persistence.test", 5*time.Second)
 }
 
 func TestSave_Created(t *testing.T) {
@@ -163,4 +164,50 @@ func TestFindAll_UpstreamError(t *testing.T) {
 	require.Error(t, err)
 	assert.False(t, errors.Is(err, ErrNotFound))
 	assert.Contains(t, err.Error(), "500")
+}
+
+func TestPersistenceClient_SetsConfiguredHost(t *testing.T) {
+	var gotHost string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPPersistenceClient(server.URL, "persistence.pdf-extractext.localhost", 5*time.Second)
+	_, err := client.FindAll(t.Context(), "req-1")
+	require.NoError(t, err)
+	assert.Equal(t, "persistence.pdf-extractext.localhost", gotHost)
+}
+
+func TestPersistenceClient_PropagatesRequestID(t *testing.T) {
+	var gotRequestID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRequestID = r.Header.Get("X-Request-ID")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPPersistenceClient(server.URL, "persistence.test", 5*time.Second)
+	_, err := client.FindAll(t.Context(), "req-42")
+	require.NoError(t, err)
+	assert.Equal(t, "req-42", gotRequestID)
+}
+
+func TestPersistenceClient_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPPersistenceClient(server.URL, "persistence.test", 50*time.Millisecond)
+	_, err := client.FindAll(t.Context(), "req-1")
+	require.Error(t, err)
+
+	var netErr net.Error
+	require.ErrorAs(t, err, &netErr)
+	assert.True(t, netErr.Timeout())
 }

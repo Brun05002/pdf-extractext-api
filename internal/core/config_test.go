@@ -49,7 +49,7 @@ func TestLoadConfig_URLDefaults(t *testing.T) {
 	cfg, err := LoadConfig()
 	require.NoError(t, err)
 	assert.Equal(t, "http://traefik:8090", cfg.ExtractionURL)
-	assert.Equal(t, "http://persistence:8002", cfg.PersistenceURL)
+	assert.Equal(t, "http://traefik:8090", cfg.PersistenceURL)
 	assert.Equal(t, "persistence.pdf-extractext.localhost", cfg.PersistenceHost)
 }
 
