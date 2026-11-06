@@ -21,7 +21,8 @@ Traefik (:80)                        red `services`
    ▼
 pdf-extractext-api (:8000)
    ├──► extraction  (:8001)          extracción de texto (Python/PyMuPDF)
-   └──► persistence (:8002) ──► MongoDB (:27017)   red `data`
+   ├──► persistence (:8002) ──► MongoDB (:27017)   red `data`
+   └──► Consul      (:8500)          registro, health checks y KV
 ```
 
 El orquestador completo de contenedores (compose, redes, smoke checks) vive en
@@ -30,16 +31,68 @@ expuesta allí.
 
 ## Variables de entorno
 
-Se validan al arranque con fail-fast: si falta una obligatoria, el proceso no
-levanta.
+La configuración se resuelve con precedencia **variable de entorno explícita >
+Consul KV > default**. Si `CONSUL_ENABLED=true` y Consul no responde al
+arrancar, se loguea un warning y el servicio arranca con env/defaults
+(fail-open).
 
-| Variable | Requerida | Default | Descripción |
-|---|---|---|---|
-| `PORT` | No | `:8000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
-| `EXTRACTION_URL` | **Sí** | — | URL base del microservicio de extracción. Ruta principal del stack: `http://traefik:8090` (entrypoint interno de Traefik). `http://extraction:8001` solo para uso aislado sin Traefik |
-| `PERSISTENCE_URL` | No | `http://traefik:8090` | URL base del microservicio de persistencia a través del entrypoint interno de Traefik. La consumen `/upload-pdf` y el CRUD `/documents` |
-| `PERSISTENCE_HOST` | No | `persistence.pdf-extractext.localhost` | Host header que el router interno de Traefik usa para enrutar a Persistence |
-| `MAX_FILE_SIZE_MB` | No | `16` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO (fronteras + headers + archivo) |
+| Variable | Default | Descripción |
+|---|---|---|
+| `PORT` | `:8000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
+| `EXTRACTION_URL` | `http://traefik:8090` | URL base del extractor por el entrypoint interno de Traefik. `http://extraction:8001` solo para uso aislado sin Traefik |
+| `EXTRACTION_HOST` | `extraction.pdf-extractext.localhost` | Host header para el router interno de Traefik hacia Extraction |
+| `PERSISTENCE_URL` | `http://traefik:8090` | URL base de Persistence por el entrypoint interno de Traefik. La consumen `/upload-pdf` y el CRUD `/documents` |
+| `PERSISTENCE_HOST` | `persistence.pdf-extractext.localhost` | Host header para el router interno de Traefik hacia Persistence |
+| `MAX_FILE_SIZE_MB` | `16` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO |
+| `CONSUL_ENABLED` | `false` | Habilita registro, health gate y lectura de KV |
+| `CONSUL_HTTP_ADDR` | `http://consul:8500` | Dirección HTTP del agente Consul |
+| `CONSUL_HTTP_TOKEN` | — | Token ACL enviado en `X-Consul-Token` en todas las peticiones |
+| `SERVICE_NAME` | `pdf-extractext-api` | Nombre con el que se registra el servicio |
+| `SERVICE_PORT` | `8000` | Puerto publicado en el registro de Consul |
+| `SERVICE_HEALTH_PATH` | `/` | Ruta del check HTTP que ejecuta Consul |
+| `CONSUL_HEALTH_CACHE_TTL` | `3s` | TTL del caché en memoria del health gate |
+| `CONSUL_HEALTH_FAIL_OPEN` | `true` | Si Consul no responde, permite la llamada al upstream (si es `false`, responde 503) |
+
+## Integración con Consul y Traefik
+
+### Registro y ciclo de vida
+
+- El ID es `api-<hostname>`; la `Address` se obtiene abriendo un socket UDP
+  contra Consul para tomar la IP real del contenedor en la red `services`
+  (nunca loopback).
+- Los `Tags` de Traefik v3.5 habilitan el servicio (`traefik.enable=true`),
+  declaran el router `api` con `Host(`pdf-extractext.localhost`)`,
+  `entrypoints=https`, `tls=true` y el puerto `8000`; las mismas claves se
+  replican en `Meta` junto con `version` y `commit`.
+- El check HTTP apunta a `http://<address>:8000<health_path>` con
+  `Interval=10s`, `Timeout=2s` y `DeregisterCriticalServiceAfter=1m`.
+- El registro ocurre después de bindear el listener; si Consul falla se
+  reintenta con backoff exponencial sin impedir el arranque.
+- Ante `SIGTERM`/`SIGINT` el orden es: deregister en Consul → esperar 5 s para
+  el drenaje de Traefik → `app.ShutdownWithTimeout`.
+
+### Health gate
+
+Antes de llamar a Extraction o Persistence se consulta
+`GET /v1/health/service/<nombre>?passing=true`. El resultado se cachea en
+memoria con `sync.RWMutex` durante `CONSUL_HEALTH_CACHE_TTL` (default `3s`).
+
+- Si no hay instancias sanas se responde `503` problem+json con code
+  `DEPENDENCY_UNAVAILABLE` y **no** se invoca al upstream.
+- Si Consul no responde: con `CONSUL_HEALTH_FAIL_OPEN=true` (default) se
+  permite la llamada y se loguea un warning; con `false`, se responde `503`.
+- El gate envuelve `ExtractionClient` y `PersistenceRepository` mediante
+  decoradores, sin cambiar sus interfaces.
+
+### Configuración dinámica (KV)
+
+Con `CONSUL_ENABLED=true` se lee
+`GET /v1/kv/pdf-extractext/config/api/?recurse` y se decodifican los valores
+Base64. Las claves aplicables son `EXTRACTION_URL`, `EXTRACTION_HOST`,
+`PERSISTENCE_URL`, `PERSISTENCE_HOST` y `MAX_FILE_SIZE_MB`; las desconocidas se
+ignoran y los secretos (`MONGO_URI`, `CONSUL_HTTP_TOKEN`) nunca se leen desde
+KV. La precedencia es variable de entorno explícita > KV > default y, si KV
+falla, se usan env/defaults con un warning.
 
 ## Endpoints
 
@@ -131,7 +184,8 @@ el miembro de extensión `code`:
 Códigos: `INVALID_REQUEST` (400), `NOT_FOUND` (404), `METHOD_NOT_ALLOWED`
 (405), `CONFLICT` (409), `UNSUPPORTED_MEDIA_TYPE` (415), `REQUEST_TOO_LARGE`
 (413), `INVALID_PDF_CONTENT` (422), `BAD_GATEWAY` (502), `GATEWAY_TIMEOUT`
-(504), `SERVICE_OVERLOADED` (503), `INTERNAL_ERROR` (500). Los errores de
+(504), `SERVICE_OVERLOADED` (503), `DEPENDENCY_UNAVAILABLE` (503),
+`INTERNAL_ERROR` (500). Los errores de
 upstream (4xx/503) se re-emiten preservando su `type`, `code` y `detail`; el
 header `X-Request-ID` correlaciona los logs de los tres servicios.
 
@@ -182,8 +236,9 @@ pdf-extractext-api/
 │   └── healthprobe/  # probe para la imagen distroless
 ├── internal/
 │   ├── api/          # handlers: root, extract, upload_pdf, documents, errors
-│   ├── core/         # config (fail-fast) + middleware X-Request-ID
-│   └── services/     # clientes HTTP: extraction + persistence
+│   ├── consul/       # cliente net/http: registro, health, KV y ciclo de vida
+│   ├── core/         # config (env > KV > default) + middleware X-Request-ID
+│   └── services/     # clientes HTTP + health gate: extraction/persistence
 └── docs/
     └── openapi.yaml  # especificación del contrato público
 ```
