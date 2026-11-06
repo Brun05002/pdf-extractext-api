@@ -41,14 +41,16 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	assert.Equal(t, ":8000", cfg.Port, "debe aplicar puerto default")
 }
 
-func TestLoadConfig_MissingRequired(t *testing.T) {
+func TestLoadConfig_URLDefaults(t *testing.T) {
 	t.Setenv("EXTRACTION_URL", "")
 	t.Setenv("PERSISTENCE_URL", "")
+	t.Setenv("PERSISTENCE_HOST", "")
 
 	cfg, err := LoadConfig()
-	assert.Nil(t, cfg)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "EXTRACTION_URL")
+	require.NoError(t, err)
+	assert.Equal(t, "http://traefik:8090", cfg.ExtractionURL)
+	assert.Equal(t, "http://persistence:8002", cfg.PersistenceURL)
+	assert.Equal(t, "persistence.pdf-extractext.localhost", cfg.PersistenceHost)
 }
 
 func TestLoadConfig_InvalidMaxFileSize(t *testing.T) {
@@ -123,4 +125,102 @@ func TestLoadConfig_InvalidServicePort(t *testing.T) {
 	_, err := LoadConfig()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SERVICE_PORT")
+}
+
+func TestApplyKV_EnvWinsOverKV(t *testing.T) {
+	t.Setenv("EXTRACTION_URL", "http://env-extraction:1")
+	t.Setenv("EXTRACTION_HOST", "env.extraction.host")
+	t.Setenv("PERSISTENCE_URL", "http://env-persistence:2")
+	t.Setenv("PERSISTENCE_HOST", "env.persistence.host")
+	t.Setenv("MAX_FILE_SIZE_MB", "20")
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+
+	err = ApplyKV(cfg, map[string]string{
+		"EXTRACTION_URL":   "http://kv-extraction:3",
+		"EXTRACTION_HOST":  "kv.extraction.host",
+		"PERSISTENCE_URL":  "http://kv-persistence:4",
+		"PERSISTENCE_HOST": "kv.persistence.host",
+		"MAX_FILE_SIZE_MB": "99",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "http://env-extraction:1", cfg.ExtractionURL)
+	assert.Equal(t, "env.extraction.host", cfg.ExtractionHost)
+	assert.Equal(t, "http://env-persistence:2", cfg.PersistenceURL)
+	assert.Equal(t, "env.persistence.host", cfg.PersistenceHost)
+	assert.Equal(t, int64(20), cfg.MaxFileSizeMB)
+}
+
+func TestApplyKV_KVWinsOverDefaults(t *testing.T) {
+	t.Setenv("EXTRACTION_URL", "")
+	t.Setenv("EXTRACTION_HOST", "")
+	t.Setenv("PERSISTENCE_URL", "")
+	t.Setenv("PERSISTENCE_HOST", "")
+	t.Setenv("MAX_FILE_SIZE_MB", "")
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+
+	err = ApplyKV(cfg, map[string]string{
+		"EXTRACTION_URL":   "http://kv-extraction:3",
+		"EXTRACTION_HOST":  "kv.extraction.host",
+		"PERSISTENCE_URL":  "http://kv-persistence:4",
+		"PERSISTENCE_HOST": "kv.persistence.host",
+		"MAX_FILE_SIZE_MB": "64",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "http://kv-extraction:3", cfg.ExtractionURL)
+	assert.Equal(t, "kv.extraction.host", cfg.ExtractionHost)
+	assert.Equal(t, "http://kv-persistence:4", cfg.PersistenceURL)
+	assert.Equal(t, "kv.persistence.host", cfg.PersistenceHost)
+	assert.Equal(t, int64(64), cfg.MaxFileSizeMB)
+}
+
+func TestApplyKV_EmptyValuesKeepDefaults(t *testing.T) {
+	t.Setenv("EXTRACTION_URL", "")
+	t.Setenv("EXTRACTION_HOST", "")
+	t.Setenv("PERSISTENCE_URL", "")
+	t.Setenv("PERSISTENCE_HOST", "")
+	t.Setenv("MAX_FILE_SIZE_MB", "")
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+
+	err = ApplyKV(cfg, map[string]string{"EXTRACTION_URL": "", "MAX_FILE_SIZE_MB": ""})
+	require.NoError(t, err)
+
+	assert.Equal(t, "http://traefik:8090", cfg.ExtractionURL)
+	assert.Equal(t, int64(16), cfg.MaxFileSizeMB)
+}
+
+func TestApplyKV_IgnoresUnknownKeysAndSecrets(t *testing.T) {
+	t.Setenv("CONSUL_HTTP_TOKEN", "")
+	t.Setenv("EXTRACTION_URL", "")
+	t.Setenv("PERSISTENCE_URL", "")
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+
+	err = ApplyKV(cfg, map[string]string{
+		"MONGO_URI":         "mongodb://secreto",
+		"CONSUL_HTTP_TOKEN": "token-filtrado",
+		"CLAVE_DESCONOCIDA": "ignorada",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.ConsulToken)
+}
+
+func TestApplyKV_InvalidMaxFileSize(t *testing.T) {
+	t.Setenv("MAX_FILE_SIZE_MB", "")
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+
+	err = ApplyKV(cfg, map[string]string{"MAX_FILE_SIZE_MB": "no-es-numero"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MAX_FILE_SIZE_MB")
+	assert.Equal(t, int64(16), cfg.MaxFileSizeMB)
 }
