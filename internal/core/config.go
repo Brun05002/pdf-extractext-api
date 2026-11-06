@@ -25,8 +25,14 @@ type Config struct {
 	ConsulHealthFailOpen bool
 }
 
-// defaultExtractionHost es el Host que el router interno de Traefik (:8090) usa para enrutar a Extraction.
-const defaultExtractionHost = "extraction.pdf-extractext.localhost"
+// Defaults de las URLs y Hosts que usa el router interno de Traefik (:8090).
+const (
+	defaultExtractionURL   = "http://traefik:8090"
+	defaultExtractionHost  = "extraction.pdf-extractext.localhost"
+	defaultPersistenceURL  = "http://persistence:8002"
+	defaultPersistenceHost = "persistence.pdf-extractext.localhost"
+	defaultMaxFileSizeMB   = 16
+)
 
 func LoadConfig() (*Config, error) {
 	port := os.Getenv("PORT")
@@ -34,20 +40,10 @@ func LoadConfig() (*Config, error) {
 		port = ":8000"
 	}
 
-	extractionURL := os.Getenv("EXTRACTION_URL")
-	if extractionURL == "" {
-		return nil, fmt.Errorf("EXTRACTION_URL es obligatoria")
-	}
-
-	extractionHost := os.Getenv("EXTRACTION_HOST")
-	if extractionHost == "" {
-		extractionHost = defaultExtractionHost
-	}
-
-	persistenceURL := os.Getenv("PERSISTENCE_URL")
-	if persistenceURL == "" {
-		return nil, fmt.Errorf("PERSISTENCE_URL es obligatoria")
-	}
+	extractionURL := envOrDefault("EXTRACTION_URL", defaultExtractionURL)
+	extractionHost := envOrDefault("EXTRACTION_HOST", defaultExtractionHost)
+	persistenceURL := envOrDefault("PERSISTENCE_URL", defaultPersistenceURL)
+	persistenceHost := envOrDefault("PERSISTENCE_HOST", defaultPersistenceHost)
 
 	maxFileSize, err := loadMaxFileSize()
 	if err != nil {
@@ -79,6 +75,7 @@ func LoadConfig() (*Config, error) {
 		ExtractionURL:        extractionURL,
 		ExtractionHost:       extractionHost,
 		PersistenceURL:       persistenceURL,
+		PersistenceHost:      persistenceHost,
 		MaxFileSizeMB:        maxFileSize,
 		ConsulAddr:           envOrDefault("CONSUL_HTTP_ADDR", "http://consul:8500"),
 		ConsulToken:          os.Getenv("CONSUL_HTTP_TOKEN"),
@@ -98,10 +95,37 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+// ApplyKV aplica solo claves conocidas y nunca pisa una variable de entorno explícita.
+func ApplyKV(cfg *Config, values map[string]string) error {
+	applyKVString(&cfg.ExtractionURL, "EXTRACTION_URL", values)
+	applyKVString(&cfg.ExtractionHost, "EXTRACTION_HOST", values)
+	applyKVString(&cfg.PersistenceURL, "PERSISTENCE_URL", values)
+	applyKVString(&cfg.PersistenceHost, "PERSISTENCE_HOST", values)
+
+	raw := values["MAX_FILE_SIZE_MB"]
+	if raw == "" || os.Getenv("MAX_FILE_SIZE_MB") != "" {
+		return nil
+	}
+	size, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return fmt.Errorf("MAX_FILE_SIZE_MB inválido en KV: %w", err)
+	}
+	cfg.MaxFileSizeMB = size
+	return nil
+}
+
+func applyKVString(target *string, envKey string, values map[string]string) {
+	value := values[envKey]
+	if value == "" || os.Getenv(envKey) != "" {
+		return
+	}
+	*target = value
+}
+
 func loadMaxFileSize() (int64, error) {
 	raw := os.Getenv("MAX_FILE_SIZE_MB")
 	if raw == "" {
-		return 16, nil
+		return defaultMaxFileSizeMB, nil
 	}
 	size, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {

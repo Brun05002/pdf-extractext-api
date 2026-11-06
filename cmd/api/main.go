@@ -32,6 +32,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cfg.ConsulEnabled {
+		loadConsulKV(cfg)
+	}
+
 	app := fiber.New(fiber.Config{
 		BodyLimit: int(cfg.MaxFileSizeMB) * 1024 * 1024,
 		// Traducción global de errores a problem+json (RFC 9457).
@@ -93,6 +97,22 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("servidor detenido correctamente")
+}
+
+// loadConsulKV aplica la configuración remota con fail-open: un error no impide arrancar.
+func loadConsulKV(cfg *core.Config) {
+	client := consul.NewClient(cfg.ConsulAddr, cfg.ConsulToken)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	values, err := consul.LoadConfigKV(ctx, client)
+	if err != nil {
+		slog.Warn("no se pudo leer Consul KV; se usan variables de entorno o defaults", "error", err)
+		return
+	}
+	if err := core.ApplyKV(cfg, values); err != nil {
+		slog.Warn("configuración de Consul KV inválida; se usan variables de entorno o defaults", "error", err)
+	}
 }
 
 // registerInConsul resuelve la IP de la red services y lanza el alta con reintentos.
