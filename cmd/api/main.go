@@ -54,7 +54,7 @@ func main() {
 
 	// Timeout estricto: backpressure contra un upstream lento.
 	var extraction services.ExtractionClient = services.NewHTTPExtractionClient(cfg.ExtractionURL, cfg.ExtractionHost, 30*time.Second)
-	var persistence services.PersistenceRepository = services.NewHTTPPersistenceClient(cfg.PersistenceURL, 10*time.Second)
+	var persistence services.PersistenceRepository = services.NewHTTPPersistenceClient(cfg.PersistenceURL, cfg.PersistenceHost, 10*time.Second)
 
 	// El gate consulta Consul antes de cada upstream; los decoradores conservan las interfaces.
 	if cfg.ConsulEnabled {

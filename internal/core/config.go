@@ -29,7 +29,7 @@ type Config struct {
 const (
 	defaultExtractionURL   = "http://traefik:8090"
 	defaultExtractionHost  = "extraction.pdf-extractext.localhost"
-	defaultPersistenceURL  = "http://persistence:8002"
+	defaultPersistenceURL  = "http://traefik:8090"
 	defaultPersistenceHost = "persistence.pdf-extractext.localhost"
 	defaultMaxFileSizeMB   = 16
 )

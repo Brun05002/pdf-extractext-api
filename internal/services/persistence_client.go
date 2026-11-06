@@ -45,12 +45,14 @@ type PersistenceRepository interface {
 // HTTPPersistenceClient implementa PersistenceRepository via HTTP/JSON.
 type HTTPPersistenceClient struct {
 	baseURL string
+	host    string
 	client  *http.Client
 }
 
-func NewHTTPPersistenceClient(baseURL string, timeout time.Duration) *HTTPPersistenceClient {
+func NewHTTPPersistenceClient(baseURL, host string, timeout time.Duration) *HTTPPersistenceClient {
 	return &HTTPPersistenceClient{
 		baseURL: baseURL,
+		host:    host,
 		client:  newHTTPClient(timeout),
 	}
 }
@@ -60,6 +62,10 @@ func (c *HTTPPersistenceClient) newRequest(ctx context.Context, method, path, re
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, fmt.Errorf("construir request: %w", err)
+	}
+	// El router interno de Traefik (:8090) enruta a Persistence por Host.
+	if c.host != "" {
+		req.Host = c.host
 	}
 	if requestID != "" {
 		req.Header.Set("X-Request-ID", requestID)
