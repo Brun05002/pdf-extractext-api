@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,12 @@ func newErrorApp() *fiber.App {
 	})
 	app.Get("/generic", func(c *fiber.Ctx) error {
 		return errors.New("panic silencioso del subsistema X")
+	})
+	app.Get("/dependency", func(c *fiber.Ctx) error {
+		return services.ErrDependencyUnavailable
+	})
+	app.Get("/dependency-wrapped", func(c *fiber.Ctx) error {
+		return respondUpstream(c, fmt.Errorf("extract: %w", services.ErrDependencyUnavailable), "fallback")
 	})
 	return app
 }
@@ -71,4 +78,16 @@ func TestErrorHandler_RouteNotFound(t *testing.T) {
 	status, body := testGet(t, newErrorApp(), "/ruta/inexistente")
 	assert.Equal(t, fiber.StatusNotFound, status)
 	assertProblemBody(t, body, fiber.StatusNotFound, "NOT_FOUND", "not-found", "Cannot GET /ruta/inexistente")
+}
+
+func TestErrorHandler_DependencyUnavailable(t *testing.T) {
+	status, body := testGet(t, newErrorApp(), "/dependency")
+	assert.Equal(t, fiber.StatusServiceUnavailable, status)
+	assertProblemBody(t, body, fiber.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "dependency-unavailable", "una dependencia no está disponible")
+}
+
+func TestRespondUpstream_DependencyUnavailableWrapped(t *testing.T) {
+	status, body := testGet(t, newErrorApp(), "/dependency-wrapped")
+	assert.Equal(t, fiber.StatusServiceUnavailable, status)
+	assertProblemBody(t, body, fiber.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "dependency-unavailable", "una dependencia no está disponible")
 }
