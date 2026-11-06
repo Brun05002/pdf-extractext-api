@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,8 +11,15 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/pdf-extractext/api/internal/api"
+	"github.com/pdf-extractext/api/internal/consul"
 	"github.com/pdf-extractext/api/internal/core"
 	"github.com/pdf-extractext/api/internal/services"
+)
+
+// version y commit se inyectan con -ldflags en la imagen; quedan en el Meta de Consul.
+var (
+	version = "dev"
+	commit  = "unknown"
 )
 
 func main() {
@@ -50,20 +58,67 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Se binda el listener antes de registrarse para que el health check no falle al arrancar.
+	ln, err := net.Listen("tcp", cfg.Port)
+	if err != nil {
+		slog.Error("no se pudo abrir el puerto", "puerto", cfg.Port, "error", err)
+		os.Exit(1)
+	}
+
 	go func() {
 		slog.Info("iniciando servidor", "puerto", cfg.Port)
-		if err := app.Listen(cfg.Port); err != nil {
+		if err := app.Listener(ln); err != nil {
 			slog.Error("el servidor terminó con error", "error", err)
 			os.Exit(1)
 		}
 	}()
 
+	var consulClient *consul.Client
+	var reg consul.Registration
+	registered := false
+	if cfg.ConsulEnabled {
+		consulClient, reg, registered = registerInConsul(ctx, cfg)
+	}
+
 	<-ctx.Done()
-	slog.Info("señal de apagado recibida; drenando conexiones")
-	// 10s < stop_grace_period del compose (15s): sin esto Docker envía SIGKILL.
-	if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
+	slog.Info("señal de apagado recibida; deregistrando y drenando conexiones")
+	if registered {
+		if err := consul.Shutdown(consulClient, reg.ID, 5*time.Second, app); err != nil {
+			slog.Error("error durante el apagado", "error", err)
+			os.Exit(1)
+		}
+	} else if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
+		// 10s < stop_grace_period del compose (15s): sin esto Docker envía SIGKILL.
 		slog.Error("error durante el apagado", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("servidor detenido correctamente")
+}
+
+// registerInConsul resuelve la IP de la red services y lanza el alta con reintentos.
+func registerInConsul(ctx context.Context, cfg *core.Config) (*consul.Client, consul.Registration, bool) {
+	client := consul.NewClient(cfg.ConsulAddr, cfg.ConsulToken)
+
+	address, err := consul.DetectLocalIP(cfg.ConsulAddr)
+	if err != nil {
+		slog.Warn("no se pudo detectar la IP para el registro en Consul", "error", err)
+		return client, consul.Registration{}, false
+	}
+
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "unknown"
+	}
+
+	reg := consul.BuildRegistration(consul.RegistrationOptions{
+		Hostname:   hostname,
+		Address:    address,
+		Port:       cfg.ServicePort,
+		HealthPath: cfg.ServiceHealthPath,
+		Name:       cfg.ServiceName,
+		Version:    version,
+		Commit:     commit,
+	})
+	go consul.RegisterWithRetry(ctx, client, reg, time.Second, 30*time.Second)
+	return client, reg, true
 }
