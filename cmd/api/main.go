@@ -32,8 +32,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	var consulClient *consul.Client
 	if cfg.ConsulEnabled {
-		loadConsulKV(cfg)
+		consulClient = consul.NewClient(cfg.ConsulAddr, cfg.ConsulToken)
+		loadConsulKV(cfg, consulClient)
 	}
 
 	app := fiber.New(fiber.Config{
@@ -51,8 +53,15 @@ func main() {
 	api.RegisterRoot(app)
 
 	// Timeout estricto: backpressure contra un upstream lento.
-	extraction := services.NewHTTPExtractionClient(cfg.ExtractionURL, cfg.ExtractionHost, 30*time.Second)
-	persistence := services.NewHTTPPersistenceClient(cfg.PersistenceURL, 10*time.Second)
+	var extraction services.ExtractionClient = services.NewHTTPExtractionClient(cfg.ExtractionURL, cfg.ExtractionHost, 30*time.Second)
+	var persistence services.PersistenceRepository = services.NewHTTPPersistenceClient(cfg.PersistenceURL, 10*time.Second)
+
+	// El gate consulta Consul antes de cada upstream; los decoradores conservan las interfaces.
+	if cfg.ConsulEnabled {
+		health := consul.NewCachedHealth(consulClient, cfg.ConsulHealthCacheTTL, cfg.ConsulHealthFailOpen)
+		extraction = services.NewHealthGatedExtraction(extraction, health, "extraction")
+		persistence = services.NewHealthGatedPersistence(persistence, health, "persistence")
+	}
 
 	api.RegisterExtract(app, extraction, cfg.MaxFileSizeMB)
 	api.RegisterUploadPDF(app, extraction, persistence)
@@ -77,11 +86,10 @@ func main() {
 		}
 	}()
 
-	var consulClient *consul.Client
 	var reg consul.Registration
 	registered := false
 	if cfg.ConsulEnabled {
-		consulClient, reg, registered = registerInConsul(ctx, cfg)
+		reg, registered = registerInConsul(ctx, cfg, consulClient)
 	}
 
 	<-ctx.Done()
@@ -100,8 +108,7 @@ func main() {
 }
 
 // loadConsulKV aplica la configuración remota con fail-open: un error no impide arrancar.
-func loadConsulKV(cfg *core.Config) {
-	client := consul.NewClient(cfg.ConsulAddr, cfg.ConsulToken)
+func loadConsulKV(cfg *core.Config, client *consul.Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -116,13 +123,11 @@ func loadConsulKV(cfg *core.Config) {
 }
 
 // registerInConsul resuelve la IP de la red services y lanza el alta con reintentos.
-func registerInConsul(ctx context.Context, cfg *core.Config) (*consul.Client, consul.Registration, bool) {
-	client := consul.NewClient(cfg.ConsulAddr, cfg.ConsulToken)
-
+func registerInConsul(ctx context.Context, cfg *core.Config, client *consul.Client) (consul.Registration, bool) {
 	address, err := consul.DetectLocalIP(cfg.ConsulAddr)
 	if err != nil {
 		slog.Warn("no se pudo detectar la IP para el registro en Consul", "error", err)
-		return client, consul.Registration{}, false
+		return consul.Registration{}, false
 	}
 
 	hostname, err := os.Hostname()
@@ -140,5 +145,5 @@ func registerInConsul(ctx context.Context, cfg *core.Config) (*consul.Client, co
 		Commit:     commit,
 	})
 	go consul.RegisterWithRetry(ctx, client, reg, time.Second, 30*time.Second)
-	return client, reg, true
+	return reg, true
 }

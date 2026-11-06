@@ -28,6 +28,7 @@ var problemCatalog = map[string]problemMeta{
 	"REQUEST_TOO_LARGE":      {"request-too-large", "Cuerpo demasiado grande"},
 	"INVALID_PDF_CONTENT":    {"invalid-pdf-content", "Contenido PDF inválido"},
 	"SERVICE_OVERLOADED":     {"service-overloaded", "Servicio saturado"},
+	"DEPENDENCY_UNAVAILABLE": {"dependency-unavailable", "Dependencia no disponible"},
 	"BAD_GATEWAY":            {"bad-gateway", "Fallo en un servicio interno"},
 	"GATEWAY_TIMEOUT":        {"gateway-timeout", "Tiempo de espera agotado"},
 	"INTERNAL_ERROR":         {"internal-error", "Error interno del servidor"},
@@ -100,6 +101,9 @@ func isTimeout(err error) bool {
 // respondUpstream traduce un error de upstream hacia el cliente: propaga 503
 // (con Retry-After) y los 4xx del upstream; red/timeout/500 caen a 502.
 func respondUpstream(c *fiber.Ctx, err error, fallbackDetail string) error {
+	if errors.Is(err, services.ErrDependencyUnavailable) {
+		return problem(c, fiber.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "una dependencia no está disponible")
+	}
 	if isTimeout(err) {
 		return problem(c, fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "un servicio interno excedió el tiempo límite")
 	}
@@ -120,6 +124,8 @@ func CustomErrorHandler(c *fiber.Ctx, err error) error {
 	}
 
 	switch {
+	case errors.Is(err, services.ErrDependencyUnavailable):
+		return problem(c, fiber.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "una dependencia no está disponible")
 	case errors.Is(err, services.ErrNotFound):
 		return problem(c, fiber.StatusNotFound, "NOT_FOUND", err.Error())
 	case errors.Is(err, services.ErrConflict):
