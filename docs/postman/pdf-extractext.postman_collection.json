@@ -1,0 +1,549 @@
+{
+  "info": {
+    "_postman_id": "b1a774f2-a27b-40fa-8025-a18a53782b71",
+    "name": "PDF ExtracText API",
+    "description": "Cliente y suite de pruebas para el microservicio de extracción de PDF y persistencia (Proyecto Cabras / TP Microservicios). Cumple los requerimientos de consigna.md, OpenAPI y Twelve-Factor App.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health Check",
+      "item": [
+        {
+          "name": "Health Check (GET /)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Content-Type es application/json\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\");",
+                  "});",
+                  "",
+                  "pm.test(\"El servicio responde UP y declara su nombre\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(\"UP\");",
+                  "    pm.expect(jsonData.service).to.eql(\"pdf-extractext-api\");",
+                  "    pm.expect(jsonData).to.have.property(\"time\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/",
+              "host": ["{{baseUrl}}"],
+              "path": [""]
+            },
+            "description": "Comprueba la operatividad de la API de borde expuesta a través de Traefik."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 - Extracción (Stateless - Requerimiento TP)",
+      "item": [
+        {
+          "name": "POST /extract - Extraer texto de PDF (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Content-Type es application/json\", function () {",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\");",
+                  "});",
+                  "",
+                  "pm.test(\"Cumple contrato C1 obligatorio: content y page_count\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property(\"content\");",
+                  "    pm.expect(jsonData).to.have.property(\"page_count\");",
+                  "    pm.expect(jsonData.content).to.be.a(\"string\");",
+                  "    pm.expect(jsonData.page_count).to.be.a(\"number\");",
+                  "    pm.expect(jsonData.page_count).to.be.above(0);",
+                  "    pm.expect(jsonData.content.length).to.be.above(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "sample.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/extract",
+              "host": ["{{baseUrl}}"],
+              "path": ["extract"]
+            },
+            "description": "Endpoint obligatorio del TP. Reenvía el PDF al microservicio de extracción en streaming y devuelve el texto Markdown y el conteo de páginas sin persistir nada."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /extract - Error 400 (Falta campo 'file')",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 400 Bad Request\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Retorna RFC 9457 problem+json con code INVALID_REQUEST\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(400);",
+                  "    pm.expect(jsonData.code).to.eql(\"INVALID_REQUEST\");",
+                  "    pm.expect(jsonData).to.have.property(\"type\");",
+                  "    pm.expect(jsonData).to.have.property(\"title\");",
+                  "    pm.expect(jsonData).to.have.property(\"detail\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "campo_erroneo",
+                  "value": "sin archivo",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/extract",
+              "host": ["{{baseUrl}}"],
+              "path": ["extract"]
+            },
+            "description": "Verifica que la omisión del campo multipart 'file' sea rechazada con 400 Bad Request según RFC 9457."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /extract - Error 415 (Archivo no PDF)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 415 Unsupported Media Type\", function () {",
+                  "    pm.response.to.have.status(415);",
+                  "});",
+                  "",
+                  "pm.test(\"Retorna RFC 9457 problem+json con code UNSUPPORTED_MEDIA_TYPE\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(415);",
+                  "    pm.expect(jsonData.code).to.eql(\"UNSUPPORTED_MEDIA_TYPE\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "sample.txt"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/extract",
+              "host": ["{{baseUrl}}"],
+              "path": ["extract"]
+            },
+            "description": "Verifica que un archivo que no sea PDF sea rechazado con 415 Unsupported Media Type."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /extract - Error 422 (PDF corrupto / inválido)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 422 Unprocessable Content\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test(\"Retorna RFC 9457 problem+json con code INVALID_PDF_CONTENT\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(422);",
+                  "    pm.expect(jsonData.code).to.eql(\"INVALID_PDF_CONTENT\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "corrupt.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/extract",
+              "host": ["{{baseUrl}}"],
+              "path": ["extract"]
+            },
+            "description": "Verifica que un archivo con extensión .pdf pero con bytes corruptos o no parseables devuelva 422 propagado desde el extractor."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Orquestación y Persistencia (/upload-pdf)",
+      "item": [
+        {
+          "name": "POST /upload-pdf - Extraer y Persistir Documento (201 Created)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 201 Created\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Retorna estructura completa de Documento y guarda documentId\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property(\"id\");",
+                  "    pm.expect(jsonData).to.have.property(\"filename\");",
+                  "    pm.expect(jsonData).to.have.property(\"extracted_text\");",
+                  "    pm.expect(jsonData).to.have.property(\"checksum\");",
+                  "    pm.expect(jsonData.id).to.match(/^[0-9a-f]{24}$/);",
+                  "    pm.environment.set(\"documentId\", jsonData.id);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "sample.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/upload-pdf",
+              "host": ["{{baseUrl}}"],
+              "path": ["upload-pdf"]
+            },
+            "description": "Orquesta la extracción con el microservicio extractor y la persistencia en MongoDB a través del microservicio persistence."
+          },
+          "response": []
+        },
+        {
+          "name": "POST /upload-pdf - Error 409 (Conflicto / Checksum Duplicado)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 409 Conflict\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test(\"Retorna error tipificado RFC 9457 con code CONFLICT\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(409);",
+                  "    pm.expect(jsonData.code).to.eql(\"CONFLICT\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "sample.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/upload-pdf",
+              "host": ["{{baseUrl}}"],
+              "path": ["upload-pdf"]
+            },
+            "description": "Verifica que un archivo con el mismo checksum sea rechazado con 409 Conflict garantizado por el índice único de MongoDB (anti-TOCTOU)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 - Gestión de Documentos (CRUD)",
+      "item": [
+        {
+          "name": "GET /documents - Listar todos los documentos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"La respuesta es un array y contiene el documento subido\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.be.an(\"array\");",
+                  "    const docId = pm.environment.get(\"documentId\");",
+                  "    const found = jsonData.some(doc => doc.id === docId);",
+                  "    pm.expect(found).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents",
+              "host": ["{{baseUrl}}"],
+              "path": ["documents"]
+            },
+            "description": "Obtiene la lista completa de documentos persistidos en la base de datos."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /documents/:id - Obtener documento por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"El documento retornado coincide con el ID guardado\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    const expectedId = pm.environment.get(\"documentId\");",
+                  "    pm.expect(jsonData.id).to.eql(expectedId);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["documents", "{{documentId}}"]
+            },
+            "description": "Obtiene el detalle de un documento persistido usando la variable dinámica documentId."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /documents/:id - Renombrar documento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 200 OK\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"El nombre del documento fue actualizado\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    const expectedName = pm.environment.get(\"renamedFilename\");",
+                  "    pm.expect(jsonData.filename).to.eql(expectedName);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"filename\": \"{{renamedFilename}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["documents", "{{documentId}}"]
+            },
+            "description": "Actualiza el nombre de archivo (filename) del documento persistido."
+          },
+          "response": []
+        },
+        {
+          "name": "DELETE /documents/:id - Eliminar documento",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 204 No Content\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["documents", "{{documentId}}"]
+            },
+            "description": "Elimina el documento de la base de datos dejando el sistema limpio para futuras ejecuciones."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /documents/:id - Verificar 404 tras eliminación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 404 Not Found tras eliminación\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"Retorna problem+json RFC 9457 con code NOT_FOUND\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(404);",
+                  "    pm.expect(jsonData.code).to.eql(\"NOT_FOUND\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/{{documentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["documents", "{{documentId}}"]
+            },
+            "description": "Comprueba que consultar el documento eliminado devuelva 404 Not Found."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /documents/id-invalido - Error 400 por ID no hexadecimal",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code es 400 Bad Request por ID inválido\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Retorna problem+json con code INVALID_REQUEST\", function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql(400);",
+                  "    pm.expect(jsonData.code).to.eql(\"INVALID_REQUEST\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/documents/id-invalido",
+              "host": ["{{baseUrl}}"],
+              "path": ["documents", "id-invalido"]
+            },
+            "description": "Verifica que un ID con formato no hexadecimal de 24 caracteres sea rechazado con 400 en el borde sin invocar a persistence."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

@@ -200,6 +200,7 @@ header `X-Request-ID` correlaciona los logs de los tres servicios.
 make ci          # vet + lint + test
 make vet         # go vet ./...
 make test        # go test -race -cover ./...
+make postman     # pruebas de Postman con Newman
 
 # Ejecutar en local dentro de la red del stack (Traefik enruta por Host).
 export EXTRACTION_URL=http://traefik:8090
@@ -244,7 +245,8 @@ pdf-extractext-api/
 │   ├── core/         # config (env > KV > default) + middleware X-Request-ID
 │   └── services/     # clientes HTTP + health gate: extraction/persistence
 └── docs/
-    └── openapi.yaml  # especificación del contrato público
+    ├── openapi.yaml  # especificación del contrato público
+    └── postman/      # cliente y suite de pruebas para Postman/Newman
 ```
 
 ## CI
