@@ -93,8 +93,8 @@ func doWithRetry(ctx context.Context, client *http.Client, newRequest func() (*h
 			if attempt < defaultMaxAttempts && retryableStatus(resp.StatusCode) {
 				retryAfter := resp.Header.Get("Retry-After")
 				drainAndClose(resp.Body)
-				if err := sleepBeforeRetry(ctx, attempt, retryAfter); err != nil {
-					return nil, err
+				if sleepErr := sleepBeforeRetry(ctx, attempt, retryAfter); sleepErr != nil {
+					return nil, sleepErr
 				}
 				continue
 			}

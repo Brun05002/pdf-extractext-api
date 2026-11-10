@@ -86,9 +86,9 @@ func (c *HTTPPersistenceClient) Save(ctx context.Context, requestID string, doc 
 	}
 
 	resp, err := doWithRetry(ctx, c.client, func() (*http.Request, error) {
-		req, err := c.newRequest(ctx, http.MethodPost, "/documents", requestID, bytes.NewReader(payload))
-		if err != nil {
-			return nil, err
+		req, reqErr := c.newRequest(ctx, http.MethodPost, "/documents", requestID, bytes.NewReader(payload))
+		if reqErr != nil {
+			return nil, reqErr
 		}
 		req.Header.Set("Content-Type", "application/json")
 		return req, nil
@@ -156,9 +156,9 @@ func (c *HTTPPersistenceClient) Update(ctx context.Context, requestID, id string
 	}
 
 	resp, err := doWithRetry(ctx, c.client, func() (*http.Request, error) {
-		req, err := c.newRequest(ctx, http.MethodPatch, "/documents/"+id, requestID, bytes.NewReader(payload))
-		if err != nil {
-			return nil, err
+		req, reqErr := c.newRequest(ctx, http.MethodPatch, "/documents/"+id, requestID, bytes.NewReader(payload))
+		if reqErr != nil {
+			return nil, reqErr
 		}
 		req.Header.Set("Content-Type", "application/json")
 		return req, nil
