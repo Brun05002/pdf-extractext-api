@@ -147,16 +147,17 @@ func TestShutdown_DeregistersBeforeShutdown(t *testing.T) {
 	registrar := &fakeRegistrar{}
 	app := &fakeApp{}
 
-	require.NoError(t, Shutdown(registrar, "api-node1", 0, app))
+	require.NoError(t, Shutdown(registrar, "api-node1", 0, 45*time.Second, app))
 
 	assert.Equal(t, []string{"deregister:api-node1", "shutdown"}, registrar.eventsWith(app))
+	assert.Equal(t, []time.Duration{45 * time.Second}, app.timeouts)
 }
 
 func TestShutdown_ContinuesWhenDeregisterFails(t *testing.T) {
 	registrar := &fakeRegistrar{deregisterErr: errors.New("consul caído")}
 	app := &fakeApp{}
 
-	require.NoError(t, Shutdown(registrar, "api-node1", 0, app))
+	require.NoError(t, Shutdown(registrar, "api-node1", 0, 45*time.Second, app))
 
 	assert.Equal(t, []string{"deregister:api-node1", "shutdown"}, registrar.eventsWith(app))
 }
@@ -209,11 +210,13 @@ func (f *fakeRegistrar) eventsWith(app *fakeApp) []string {
 }
 
 type fakeApp struct {
-	events []string
+	events   []string
+	timeouts []time.Duration
 }
 
 func (f *fakeApp) ShutdownWithTimeout(timeout time.Duration) error {
 	f.events = append(f.events, "shutdown")
+	f.timeouts = append(f.timeouts, timeout)
 	return nil
 }
 

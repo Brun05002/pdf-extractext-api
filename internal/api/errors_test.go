@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -90,4 +91,28 @@ func TestRespondUpstream_DependencyUnavailableWrapped(t *testing.T) {
 	status, body := testGet(t, newErrorApp(), "/dependency-wrapped")
 	assert.Equal(t, fiber.StatusServiceUnavailable, status)
 	assertProblemBody(t, body, fiber.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "dependency-unavailable", "una dependencia no está disponible")
+}
+
+func TestStatusForError(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"nil", nil, fiber.StatusOK},
+		{"not found", services.ErrNotFound, fiber.StatusNotFound},
+		{"conflict", services.ErrConflict, fiber.StatusConflict},
+		{"dependency", services.ErrDependencyUnavailable, fiber.StatusServiceUnavailable},
+		{"upstream 503", &services.UpstreamError{Status: fiber.StatusServiceUnavailable}, fiber.StatusServiceUnavailable},
+		{"upstream 422", &services.UpstreamError{Status: fiber.StatusUnprocessableEntity}, fiber.StatusUnprocessableEntity},
+		{"fiber", fiber.NewError(fiber.StatusBadRequest, "bad"), fiber.StatusBadRequest},
+		{"timeout", context.DeadlineExceeded, fiber.StatusGatewayTimeout},
+		{"unknown", errors.New("boom"), fiber.StatusInternalServerError},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.status, StatusForError(tc.err))
+		})
+	}
 }

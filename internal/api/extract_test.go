@@ -36,7 +36,11 @@ func (m *MockExtractionClient) Extract(ctx context.Context, requestID, filename 
 }
 
 func newExtractApp(client services.ExtractionClient, maxSizeMB int64) *fiber.App {
-	app := fiber.New(fiber.Config{BodyLimit: int(maxSizeMB) * 1024 * 1024})
+	app := fiber.New(fiber.Config{
+		BodyLimit:                    int(maxSizeMB) * 1024 * 1024,
+		StreamRequestBody:            true,
+		DisablePreParseMultipartForm: true,
+	})
 	app.Use(core.RequestID())
 	RegisterExtract(app, client, maxSizeMB)
 	return app
@@ -44,17 +48,7 @@ func newExtractApp(client services.ExtractionClient, maxSizeMB int64) *fiber.App
 
 func multipartRequest(t *testing.T, field, filename string, content []byte) *http.Request {
 	t.Helper()
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile(field, filename)
-	require.NoError(t, err)
-	_, err = part.Write(content)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-
-	req := httptest.NewRequest(fiber.MethodPost, "/extract", &buf)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	return req
+	return multipartRequestFor(t, "/extract", field, filename, content, "")
 }
 
 func TestExtract_OK_StreamsToClient(t *testing.T) {
@@ -172,8 +166,10 @@ func TestExtract_IncompleteUpstreamResponse(t *testing.T) {
 		name   string
 		result *services.ExtractionResult
 	}{
+		{"respuesta nil", nil},
 		{"content vacío", &services.ExtractionResult{Content: "", PageCount: 3}},
 		{"page_count cero", &services.ExtractionResult{Content: "texto", PageCount: 0}},
+		{"page_count negativo", &services.ExtractionResult{Content: "texto", PageCount: -1}},
 	}
 
 	for _, tc := range cases {

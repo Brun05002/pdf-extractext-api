@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: PDF ExtracText API
-  version: 1.2.0
+  version: 1.3.0
   description: |
     Microservicio orquestador del Proyecto Cabras. Recibe archivos PDF vía
     multipart/form-data, los reenvía en streaming al microservicio de
@@ -140,6 +140,8 @@ paths:
                   $ref: "#/components/schemas/Document"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
         "504":
           $ref: "#/components/responses/GatewayTimeout"
 
@@ -173,6 +175,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
         "504":
           $ref: "#/components/responses/GatewayTimeout"
     patch:
@@ -204,6 +208,8 @@ paths:
           $ref: "#/components/responses/Conflict"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
         "504":
           $ref: "#/components/responses/GatewayTimeout"
     delete:
@@ -222,6 +228,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "502":
           $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
         "504":
           $ref: "#/components/responses/GatewayTimeout"
 
@@ -337,7 +345,7 @@ components:
             detail: error interno del servidor
             code: INTERNAL_ERROR
     BadGateway:
-      description: Fallo de red/timeout con un upstream, o un 500 del extractor.
+      description: Fallo de red/timeout con un upstream, o un 500 de un servicio interno.
       content:
         application/problem+json:
           schema:
@@ -350,8 +358,8 @@ components:
             code: BAD_GATEWAY
     ServiceOverloaded:
       description: |
-        Extractor saturado (backpressure). Propagado del upstream junto con
-        su header `Retry-After`.
+        Extractor saturado (backpressure) propagado con su header `Retry-After`,
+        o dependencia no disponible por el health gate (`DEPENDENCY_UNAVAILABLE`).
       headers:
         Retry-After:
           description: Segundos a esperar antes de reintentar (valor del extractor).
@@ -367,8 +375,22 @@ components:
             status: 503
             detail: Servicio saturado. Reintente más tarde.
             code: SERVICE_OVERLOADED
+    DependencyUnavailable:
+      description: |
+        El health gate de Consul no encontró instancias sanas para la
+        dependencia, o `CONSUL_HEALTH_FAIL_OPEN=false` y Consul no respondió.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/ProblemResponse"
+          example:
+            type: urn:pdf-extractext:dependency-unavailable
+            title: Dependencia no disponible
+            status: 503
+            detail: una dependencia no está disponible
+            code: DEPENDENCY_UNAVAILABLE
     GatewayTimeout:
-      description: El servicio de extracción excedió el timeout de 30 segundos.
+      description: Un servicio interno excedió su timeout (30 s para extracción, 10 s para persistencia).
       content:
         application/problem+json:
           schema:
@@ -467,6 +489,7 @@ components:
             - urn:pdf-extractext:unsupported-media-type
             - urn:pdf-extractext:invalid-pdf-content
             - urn:pdf-extractext:service-overloaded
+            - urn:pdf-extractext:dependency-unavailable
             - urn:pdf-extractext:bad-gateway
             - urn:pdf-extractext:gateway-timeout
             - urn:pdf-extractext:internal-error
@@ -495,6 +518,7 @@ components:
             - UNSUPPORTED_MEDIA_TYPE
             - INVALID_PDF_CONTENT
             - SERVICE_OVERLOADED
+            - DEPENDENCY_UNAVAILABLE
             - BAD_GATEWAY
             - GATEWAY_TIMEOUT
             - INTERNAL_ERROR

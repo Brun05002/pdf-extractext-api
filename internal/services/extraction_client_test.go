@@ -1,10 +1,13 @@
 package services
 
 import (
+	"bytes"
+	"context"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +77,47 @@ func TestExtractionClient_UpstreamError(t *testing.T) {
 	var ue *UpstreamError
 	require.ErrorAs(t, err, &ue, "el error upstream debe preservarse como UpstreamError")
 	assert.Equal(t, http.StatusInternalServerError, ue.Status)
+}
+
+func TestExtractionClient_ClosesPipeOnRequestConstructionError(t *testing.T) {
+	client := NewHTTPExtractionClient("://invalid-url", "extraction.test", time.Second)
+
+	_, err := client.Extract(t.Context(), "test-rid", "doc.pdf", strings.NewReader("pdf"))
+	require.Error(t, err)
+
+	assertNoExtractProducerGoroutine(t)
+}
+
+func TestExtractionClient_ClosesPipeOnCanceledContext(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"content":"x","page_count":1}`))
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	client := NewHTTPExtractionClient(server.URL, "extraction.test", time.Second)
+	_, err := client.Extract(ctx, "test-rid", "doc.pdf", strings.NewReader(strings.Repeat("pdf", 1<<16)))
+	require.Error(t, err)
+
+	assertNoExtractProducerGoroutine(t)
+}
+
+// assertNoExtractProducerGoroutine detecta fugas de la goroutine que escribe en io.Pipe.
+func assertNoExtractProducerGoroutine(t *testing.T) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		buf := make([]byte, 1<<20)
+		n := runtime.Stack(buf, true)
+		if !bytes.Contains(buf[:n], []byte("HTTPExtractionClient).Extract.func1")) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("la goroutine productora del multipart quedó bloqueada")
 }
 
 func TestExtractionClient_Timeout(t *testing.T) {

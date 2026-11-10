@@ -22,6 +22,11 @@ var (
 	commit  = "unknown"
 )
 
+const (
+	shutdownDrain   = 5 * time.Second
+	shutdownTimeout = 45 * time.Second
+)
+
 func main() {
 	// Logging estructurado JSON por defecto para todo el proceso.
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -40,6 +45,9 @@ func main() {
 
 	app := fiber.New(fiber.Config{
 		BodyLimit: int(cfg.MaxFileSizeMB) * 1024 * 1024,
+		// Streaming real: el body no se materializa antes de entrar al handler.
+		StreamRequestBody:            true,
+		DisablePreParseMultipartForm: true,
 		// Traducción global de errores a problem+json (RFC 9457).
 		ErrorHandler: api.CustomErrorHandler,
 		// WriteTimeout > timeout del cliente de extracción (30s) para no cortar /extract.
@@ -49,7 +57,7 @@ func main() {
 	})
 
 	app.Use(core.RequestID())
-	app.Use(core.Logger())
+	app.Use(core.Logger(api.StatusForError))
 	api.RegisterRoot(app)
 
 	// Timeout estricto: backpressure contra un upstream lento.
@@ -64,7 +72,7 @@ func main() {
 	}
 
 	api.RegisterExtract(app, extraction, cfg.MaxFileSizeMB)
-	api.RegisterUploadPDF(app, extraction, persistence)
+	api.RegisterUploadPDF(app, extraction, persistence, cfg.MaxFileSizeMB)
 	api.RegisterDocuments(app, persistence)
 
 	// SIGINT/SIGTERM: drenar requests en vuelo antes de salir (PID 1 del contenedor).
@@ -95,12 +103,12 @@ func main() {
 	<-ctx.Done()
 	slog.Info("señal de apagado recibida; deregistrando y drenando conexiones")
 	if registered {
-		if err := consul.Shutdown(consulClient, reg.ID, 5*time.Second, app); err != nil {
+		// 5s de drenaje tras deregistrar + 45s de shutdown = 50s < stop_grace_period (55s).
+		if err := consul.Shutdown(consulClient, reg.ID, shutdownDrain, shutdownTimeout, app); err != nil {
 			slog.Error("error durante el apagado", "error", err)
 			os.Exit(1)
 		}
-	} else if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
-		// 10s < stop_grace_period del compose (15s): sin esto Docker envía SIGKILL.
+	} else if err := app.ShutdownWithTimeout(shutdownTimeout); err != nil {
 		slog.Error("error durante el apagado", "error", err)
 		os.Exit(1)
 	}

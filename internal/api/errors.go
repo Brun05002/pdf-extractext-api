@@ -115,6 +115,38 @@ func respondUpstream(c *fiber.Ctx, err error, fallbackDetail string) error {
 	return problem(c, fiber.StatusBadGateway, "BAD_GATEWAY", fallbackDetail)
 }
 
+// StatusForError devuelve el status HTTP que CustomErrorHandler emitirá.
+// Se usa en el access-log para no registrar 200 cuando el handler global
+// todavía no escribió la respuesta de error.
+func StatusForError(err error) int {
+	if err == nil {
+		return fiber.StatusOK
+	}
+
+	var ue *services.UpstreamError
+	if errors.As(err, &ue) {
+		return ue.Status
+	}
+
+	switch {
+	case errors.Is(err, services.ErrDependencyUnavailable):
+		return fiber.StatusServiceUnavailable
+	case errors.Is(err, services.ErrNotFound):
+		return fiber.StatusNotFound
+	case errors.Is(err, services.ErrConflict):
+		return fiber.StatusConflict
+	case isTimeout(err):
+		return fiber.StatusGatewayTimeout
+	}
+
+	var fiberErr *fiber.Error
+	if errors.As(err, &fiberErr) {
+		return fiberErr.Code
+	}
+
+	return fiber.StatusInternalServerError
+}
+
 // CustomErrorHandler traduce cualquier error al problem RFC 9457 estándar
 // cumpliendo la firma fiber.ErrorHandler.
 func CustomErrorHandler(c *fiber.Ctx, err error) error {

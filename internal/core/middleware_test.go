@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -124,6 +125,25 @@ func TestLogger_RegistraRequestConRequestID(t *testing.T) {
 	assert.Contains(t, log, `"path":"/hola"`)
 	assert.Contains(t, log, `"status":200`)
 	assert.Contains(t, log, resp.Header.Get("X-Request-ID"), "debe incluir el X-Request-ID")
+}
+
+func TestLogger_RegistraStatusDelErrorHandler(t *testing.T) {
+	buf := captureLogs(t)
+
+	app := fiber.New(fiber.Config{
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			return c.SendStatus(fiber.StatusServiceUnavailable)
+		},
+	})
+	app.Use(RequestID())
+	app.Use(Logger(func(error) int { return fiber.StatusServiceUnavailable }))
+	app.Get("/boom", func(c *fiber.Ctx) error { return errors.New("upstream caído") })
+
+	resp, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/boom", nil))
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusServiceUnavailable, resp.StatusCode)
+
+	assert.Contains(t, buf.String(), `"status":503`, "debe registrar el status real del error, no 200")
 }
 
 func TestLogger_OmiteHealthcheck(t *testing.T) {

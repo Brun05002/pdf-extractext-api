@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-//  La API solo expone {content, page_count} en POST /extract.
+// La API solo expone {content, page_count} en POST /extract.
 type ExtractionResult struct {
 	Filename      string `json:"filename"`
 	ExtractedText string `json:"extracted_text"`
@@ -43,6 +43,8 @@ func NewHTTPExtractionClient(baseURL, host string, timeout time.Duration) *HTTPE
 func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename string, body io.Reader) (*ExtractionResult, error) {
 	pr, pw := io.Pipe()
 	writer := multipart.NewWriter(pw)
+	contentType := writer.FormDataContentType()
+	defer pr.Close()
 	go func() {
 		part, err := writer.CreateFormFile("file", filename)
 		if err == nil {
@@ -56,9 +58,10 @@ func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename 
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/extract", pr)
 	if err != nil {
+		_ = pr.CloseWithError(err)
 		return nil, fmt.Errorf("construir request: %w", err)
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Content-Type", contentType)
 	// El router interno de Traefik (:8090) enruta a Extraction por Host.
 	if c.host != "" {
 		req.Host = c.host

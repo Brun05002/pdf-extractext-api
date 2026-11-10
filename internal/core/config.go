@@ -96,21 +96,24 @@ func envOrDefault(key, fallback string) string {
 }
 
 // ApplyKV aplica solo claves conocidas y nunca pisa una variable de entorno explícita.
+// Valida todo antes de mutar cfg para no dejar la configuración en estado parcial.
 func ApplyKV(cfg *Config, values map[string]string) error {
-	applyKVString(&cfg.ExtractionURL, "EXTRACTION_URL", values)
-	applyKVString(&cfg.ExtractionHost, "EXTRACTION_HOST", values)
-	applyKVString(&cfg.PersistenceURL, "PERSISTENCE_URL", values)
-	applyKVString(&cfg.PersistenceHost, "PERSISTENCE_HOST", values)
+	next := *cfg
+	applyKVString(&next.ExtractionURL, "EXTRACTION_URL", values)
+	applyKVString(&next.ExtractionHost, "EXTRACTION_HOST", values)
+	applyKVString(&next.PersistenceURL, "PERSISTENCE_URL", values)
+	applyKVString(&next.PersistenceHost, "PERSISTENCE_HOST", values)
 
 	raw := values["MAX_FILE_SIZE_MB"]
-	if raw == "" || os.Getenv("MAX_FILE_SIZE_MB") != "" {
-		return nil
+	if raw != "" && os.Getenv("MAX_FILE_SIZE_MB") == "" {
+		size, err := parseMaxFileSize(raw, "KV")
+		if err != nil {
+			return err
+		}
+		next.MaxFileSizeMB = size
 	}
-	size, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
-		return fmt.Errorf("MAX_FILE_SIZE_MB inválido en KV: %w", err)
-	}
-	cfg.MaxFileSizeMB = size
+
+	*cfg = next
 	return nil
 }
 
@@ -127,9 +130,17 @@ func loadMaxFileSize() (int64, error) {
 	if raw == "" {
 		return defaultMaxFileSizeMB, nil
 	}
+	return parseMaxFileSize(raw, "entorno")
+}
+
+// parseMaxFileSize valida que el límite sea un entero positivo.
+func parseMaxFileSize(raw, source string) (int64, error) {
 	size, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("MAX_FILE_SIZE_MB inválido: %w", err)
+		return 0, fmt.Errorf("MAX_FILE_SIZE_MB inválido en %s: %w", source, err)
+	}
+	if size <= 0 {
+		return 0, fmt.Errorf("MAX_FILE_SIZE_MB inválido en %s: debe ser mayor que 0", source)
 	}
 	return size, nil
 }

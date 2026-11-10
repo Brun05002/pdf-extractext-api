@@ -87,7 +87,86 @@ func TestCachedHealth_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 
-	assert.GreaterOrEqual(t, query.callCount(), 1)
+	assert.Equal(t, 1, query.callCount())
+}
+
+func TestCachedHealth_CoalescesConcurrentMisses(t *testing.T) {
+	query := newBlockingHealthQuery()
+	health := NewCachedHealth(query, time.Minute, true)
+
+	const callers = 100
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			healthy, err := health.IsHealthy(context.Background(), "extraction")
+			assert.NoError(t, err)
+			assert.True(t, healthy)
+		}()
+	}
+
+	close(start)
+	query.waitUntilCalled(t)
+	close(query.release)
+	wg.Wait()
+
+	assert.Equal(t, 1, query.callCount(), "singleflight debe colapsar el thundering herd en una sola consulta")
+}
+
+func TestCachedHealth_FailOpenIsNotCached(t *testing.T) {
+	query := &fakeHealthQuery{err: errors.New("consul caído")}
+	health := NewCachedHealth(query, time.Minute, true)
+
+	for i := 0; i < 2; i++ {
+		healthy, err := health.IsHealthy(t.Context(), "extraction")
+		require.NoError(t, err)
+		assert.True(t, healthy)
+	}
+
+	assert.Equal(t, 2, query.callCount(), "fail-open no debe cachear el resultado")
+}
+
+type blockingHealthQuery struct {
+	mu      sync.Mutex
+	calls   int
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func newBlockingHealthQuery() *blockingHealthQuery {
+	return &blockingHealthQuery{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (q *blockingHealthQuery) HealthPassing(context.Context, string) (bool, error) {
+	q.mu.Lock()
+	q.calls++
+	q.mu.Unlock()
+	q.once.Do(func() { close(q.entered) })
+	<-q.release
+	return true, nil
+}
+
+func (q *blockingHealthQuery) waitUntilCalled(t *testing.T) {
+	t.Helper()
+	select {
+	case <-q.entered:
+	case <-time.After(time.Second):
+		t.Fatal("la consulta de salud no llegó a ejecutarse")
+	}
+	time.Sleep(20 * time.Millisecond)
+}
+
+func (q *blockingHealthQuery) callCount() int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.calls
 }
 
 type fakeHealthQuery struct {

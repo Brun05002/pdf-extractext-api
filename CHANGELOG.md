@@ -27,6 +27,28 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 - Documentación de variables, flujo de registro, health gate y KV; cobertura
   del paquete `internal/consul` por encima del 80 %.
 
+### Changed
+
+- Streaming multipart real con `StreamRequestBody` y
+  `DisablePreParseMultipartForm`: el PDF no se materializa antes del handler y
+  el límite `MAX_FILE_SIZE_MB` se aplica durante la lectura.
+- El health gate coalesce consultas concurrentes con `singleflight` y no cachea
+  fallos fail-open.
+- Shutdown unificado en 45 s con 5 s de drenaje; el compose usa
+  `stop_grace_period: 55s`.
+- `PATCH /documents/{id}` exige `filename` no vacío.
+- El problem+json de un upstream se decodifica con un límite de 64 KiB.
+
+### Fixed
+
+- Fugas de goroutines en `ExtractionClient` al fallar la construcción del
+  request o cancelarse el contexto.
+- El access-log ahora registra el status real de los errores globales.
+- `/extract` valida `content` no vacío y `page_count > 0`, incluyendo respuestas
+  nil del extractor.
+- `MAX_FILE_SIZE_MB` debe ser positivo y `ApplyKV` ya no deja configuración
+  parcial si un valor es inválido.
+
 ## [1.0.0] - 2026-10-07
 
 ### Added

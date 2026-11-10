@@ -3,8 +3,12 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
+
+// maxUpstreamErrorBytes acota el problem+json que se decodifica de un upstream.
+const maxUpstreamErrorBytes = 64 << 10
 
 // UpstreamError preserva el error RFC 9457 de un upstream (status, URN,
 // code, detail y el header Retry-After si existe) para que la capa de API
@@ -36,7 +40,7 @@ func readUpstreamError(resp *http.Response) *UpstreamError {
 		Code   string `json:"code"`
 		Detail string `json:"detail"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&problem); err == nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxUpstreamErrorBytes)).Decode(&problem); err == nil {
 		ue.Type = problem.Type
 		ue.Title = problem.Title
 		ue.Code = problem.Code

@@ -1,11 +1,9 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
-	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -21,9 +19,13 @@ import (
 )
 
 func newUploadApp(client services.ExtractionClient, repo services.PersistenceRepository) *fiber.App {
-	app := fiber.New(fiber.Config{ErrorHandler: CustomErrorHandler})
+	app := fiber.New(fiber.Config{
+		StreamRequestBody:            true,
+		DisablePreParseMultipartForm: true,
+		ErrorHandler:                 CustomErrorHandler,
+	})
 	app.Use(core.RequestID())
-	RegisterUploadPDF(app, client, repo)
+	RegisterUploadPDF(app, client, repo, 5)
 	return app
 }
 
@@ -39,20 +41,7 @@ func validC1Result() *services.ExtractionResult {
 
 func uploadRequest(t *testing.T, field, filename string, content []byte, requestID string) *http.Request {
 	t.Helper()
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile(field, filename)
-	require.NoError(t, err)
-	_, err = part.Write(content)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-
-	req := httptest.NewRequest(fiber.MethodPost, "/upload-pdf", &buf)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	if requestID != "" {
-		req.Header.Set("X-Request-ID", requestID)
-	}
-	return req
+	return multipartRequestFor(t, "/upload-pdf", field, filename, content, requestID)
 }
 
 // TestUploadPDF_OK: persiste vía Save() con {filename, extracted_text, checksum} y responde 201 (C2).
@@ -268,12 +257,12 @@ func TestUploadPDF_RequestIDHeaderThroughHTTPClient(t *testing.T) {
 // un 500 del extractor se responde como 502 genérico sin filtrar detalle.
 func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {
 	cases := []struct {
-		name          string
-		upstream      func(w http.ResponseWriter)
-		wantStatus    int
-		wantCode      string
-		wantURN       string
-		wantDetail    string
+		name           string
+		upstream       func(w http.ResponseWriter)
+		wantStatus     int
+		wantCode       string
+		wantURN        string
+		wantDetail     string
 		wantRetryAfter string
 	}{
 		{

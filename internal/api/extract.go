@@ -10,41 +10,41 @@ import (
 )
 
 type extractHandler struct {
-	client services.ExtractionClient
+	client   services.ExtractionClient
+	maxBytes int64
 }
 
 // RegisterExtract registra POST /extract inyectando el cliente de extracción.
 func RegisterExtract(app *fiber.App, client services.ExtractionClient, maxSizeMB int64) {
-	h := &extractHandler{client: client}
+	h := &extractHandler{
+		client:   client,
+		maxBytes: maxSizeMB * 1024 * 1024,
+	}
 	app.Post("/extract", h.handle)
 }
 
 func (h *extractHandler) handle(c *fiber.Ctx) error {
-	fileHeader, err := c.FormFile("file")
+	input, err := openPDFInput(c, h.maxBytes)
 	if err != nil {
-		return problem(c, fiber.StatusBadRequest, "INVALID_REQUEST", "se requiere el campo multipart 'file'")
+		return err
 	}
-
-	if !isPDF(fileHeader.Filename) {
-		return problem(c, fiber.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "solo se aceptan archivos PDF")
-	}
-
-	// El tamaño ya lo limita Fiber BodyLimit.
-	file, err := fileHeader.Open()
-	if err != nil {
-		return problem(c, fiber.StatusInternalServerError, "INTERNAL_ERROR", "no se pudo abrir el archivo subido")
-	}
-	defer file.Close()
+	defer input.Close()
 
 	// El Request-ID vive en Locals: el middleware lo genera si el cliente no lo envió.
-	result, err := h.client.Extract(c.Context(), core.RequestIDFrom(c), fileHeader.Filename, file)
+	result, err := h.client.Extract(c.Context(), core.RequestIDFrom(c), input.Filename, input)
 	if err != nil {
+		if input.LimitExceeded() {
+			return requestTooLargeError()
+		}
 		return respondUpstream(c, err, "fallo en el servicio de extracción")
+	}
+	if input.LimitExceeded() {
+		return requestTooLargeError()
 	}
 
 	// Respuesta incompleta del extractor: no es un C1 válido.
-	if result.Content == "" || result.PageCount == 0 {
-		return problem(c, fiber.StatusBadGateway, "BAD_GATEWAY", "el servicio de extracción devolvió una respuesta incompleta")
+	if err := validateExtractionResult(result); err != nil {
+		return problem(c, fiber.StatusBadGateway, "BAD_GATEWAY", "respuesta del extractor no cumple el contrato: "+err.Error())
 	}
 
 	// Contrato público: exactamente {content, page_count}; el endpoint es 100% stateless.

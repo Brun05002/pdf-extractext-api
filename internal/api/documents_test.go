@@ -140,6 +140,24 @@ func TestUpdateDocument_OK(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
+func TestUpdateDocument_MissingFilename(t *testing.T) {
+	repo := new(MockPersistenceRepository)
+
+	req := httptest.NewRequest(http.MethodPatch, "/documents/507f1f77bcf86cd799439011",
+		strings.NewReader(`{"extracted_text":"no permitido"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	app := newDocumentsApp(repo)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+	assertProblemBody(t, string(body), fiber.StatusBadRequest, "INVALID_REQUEST", "invalid-request", "el campo filename es obligatorio")
+	repo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestUpdateDocument_InvalidBody(t *testing.T) {
 	repo := new(MockPersistenceRepository)
 

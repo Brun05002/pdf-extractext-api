@@ -17,29 +17,25 @@ var uploadTimeout = 30 * time.Second
 type uploadPDFHandler struct {
 	extractor services.ExtractionClient
 	repo      services.PersistenceRepository
+	maxBytes  int64
 }
 
 // RegisterUploadPDF registra POST /upload-pdf: extrae (C1) y persiste (C2) con X-Request-ID y timeout estricto.
-func RegisterUploadPDF(app *fiber.App, extractor services.ExtractionClient, repo services.PersistenceRepository) {
-	h := &uploadPDFHandler{extractor: extractor, repo: repo}
+func RegisterUploadPDF(app *fiber.App, extractor services.ExtractionClient, repo services.PersistenceRepository, maxSizeMB int64) {
+	h := &uploadPDFHandler{
+		extractor: extractor,
+		repo:      repo,
+		maxBytes:  maxSizeMB * 1024 * 1024,
+	}
 	app.Post("/upload-pdf", h.handle)
 }
 
 func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
-	fileHeader, err := c.FormFile("file")
+	input, err := openPDFInput(c, h.maxBytes)
 	if err != nil {
-		return problem(c, fiber.StatusBadRequest, "INVALID_REQUEST", "se requiere el campo multipart 'file'")
+		return err
 	}
-
-	if !isPDF(fileHeader.Filename) {
-		return problem(c, fiber.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA_TYPE", "solo se aceptan archivos PDF")
-	}
-
-	file, err := fileHeader.Open()
-	if err != nil {
-		return problem(c, fiber.StatusInternalServerError, "INTERNAL_ERROR", "no se pudo abrir el archivo subido")
-	}
-	defer file.Close()
+	defer input.Close()
 
 	// El Request-ID vive en Locals: el middleware lo genera si el cliente no lo envió.
 	requestID := core.RequestIDFrom(c)
@@ -48,12 +44,18 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(c.Context(), uploadTimeout)
 	defer cancel()
 
-	result, err := h.extractor.Extract(ctx, requestID, fileHeader.Filename, file)
+	result, err := h.extractor.Extract(ctx, requestID, input.Filename, input)
 	if err != nil {
+		if input.LimitExceeded() {
+			return requestTooLargeError()
+		}
 		if isTimeout(err) || ctx.Err() != nil {
 			return problem(c, fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "el servicio de extracción excedió el tiempo límite")
 		}
 		return respondUpstream(c, err, "fallo en el servicio de extracción")
+	}
+	if input.LimitExceeded() {
+		return requestTooLargeError()
 	}
 
 	// Validación del contrato C1.

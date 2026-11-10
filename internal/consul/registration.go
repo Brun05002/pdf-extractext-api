@@ -186,8 +186,8 @@ func registerWithRetry(ctx context.Context, registrar Registrar, reg Registratio
 	}
 }
 
-// Shutdown deregistra antes de drenar: Traefik deja de enviar tráfico antes del cierre.
-func Shutdown(registrar Registrar, serviceID string, drain time.Duration, app Shutdowner) error {
+// Shutdown deregistra, drena y luego apaga Fiber con el timeout indicado.
+func Shutdown(registrar Registrar, serviceID string, drain, shutdownTimeout time.Duration, app Shutdowner) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := registrar.Deregister(ctx, serviceID); err != nil {
@@ -196,5 +196,5 @@ func Shutdown(registrar Registrar, serviceID string, drain time.Duration, app Sh
 	if drain > 0 {
 		time.Sleep(drain)
 	}
-	return app.ShutdownWithTimeout(10 * time.Second)
+	return app.ShutdownWithTimeout(shutdownTimeout)
 }

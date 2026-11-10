@@ -54,13 +54,17 @@ func TestLoadConfig_URLDefaults(t *testing.T) {
 }
 
 func TestLoadConfig_InvalidMaxFileSize(t *testing.T) {
-	t.Setenv("EXTRACTION_URL", "http://extraction:8081")
-	t.Setenv("PERSISTENCE_URL", "http://persistence:8082")
-	t.Setenv("MAX_FILE_SIZE_MB", "no-es-un-numero")
+	for _, raw := range []string{"no-es-un-numero", "0", "-1"} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv("EXTRACTION_URL", "http://extraction:8081")
+			t.Setenv("PERSISTENCE_URL", "http://persistence:8082")
+			t.Setenv("MAX_FILE_SIZE_MB", raw)
 
-	_, err := LoadConfig()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "MAX_FILE_SIZE_MB")
+			_, err := LoadConfig()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "MAX_FILE_SIZE_MB")
+		})
+	}
 }
 
 func TestLoadConfig_ConsulDefaults(t *testing.T) {
@@ -214,13 +218,28 @@ func TestApplyKV_IgnoresUnknownKeysAndSecrets(t *testing.T) {
 }
 
 func TestApplyKV_InvalidMaxFileSize(t *testing.T) {
-	t.Setenv("MAX_FILE_SIZE_MB", "")
+	for _, raw := range []string{"no-es-numero", "0", "-1"} {
+		t.Run(raw, func(t *testing.T) {
+			t.Setenv("EXTRACTION_URL", "")
+			t.Setenv("EXTRACTION_HOST", "")
+			t.Setenv("PERSISTENCE_URL", "")
+			t.Setenv("PERSISTENCE_HOST", "")
+			t.Setenv("MAX_FILE_SIZE_MB", "")
 
-	cfg, err := LoadConfig()
-	require.NoError(t, err)
+			cfg, err := LoadConfig()
+			require.NoError(t, err)
+			before := *cfg
 
-	err = ApplyKV(cfg, map[string]string{"MAX_FILE_SIZE_MB": "no-es-numero"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "MAX_FILE_SIZE_MB")
-	assert.Equal(t, int64(16), cfg.MaxFileSizeMB)
+			err = ApplyKV(cfg, map[string]string{
+				"EXTRACTION_URL":   "http://kv-extraction:3",
+				"EXTRACTION_HOST":  "kv.extraction.host",
+				"PERSISTENCE_URL":  "http://kv-persistence:4",
+				"PERSISTENCE_HOST": "kv.persistence.host",
+				"MAX_FILE_SIZE_MB": raw,
+			})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "MAX_FILE_SIZE_MB")
+			assert.Equal(t, before, *cfg, "un KV inválido no debe mutar parcialmente la configuración")
+		})
+	}
 }

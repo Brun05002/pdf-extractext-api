@@ -6,9 +6,9 @@ formato) y orquesta la extracción de texto (`pdf-extractext-extractor`) y su
 persistencia (`pdf-extractext-persistence`).
 
 - **Stack:** Go 1.27 + Fiber v2 (fasthttp). El cuerpo multipart se reenvía al
-  extractor en streaming; el default `MAX_FILE_SIZE_MB=16` se fija justo en el
-  umbral en que fasthttp empieza a volcar a disco (16 MiB), de modo que el
-  hot path no toca disco.
+  extractor en streaming real (`StreamRequestBody`), sin materializarlo ni
+  volcarlo a disco; el default `MAX_FILE_SIZE_MB=16` acota el multipart
+  completo.
 - **Estado:** implementado y declarado en el compose de
   `pdf-extractext-infrastructure` (servicio `api`, ruteado por Traefik). Ver
   [CHANGELOG.md](CHANGELOG.md) (v1.0.0).
@@ -43,7 +43,7 @@ arrancar, se loguea un warning y el servicio arranca con env/defaults
 | `EXTRACTION_HOST` | `extraction.pdf-extractext.localhost` | Host header para el router interno de Traefik hacia Extraction |
 | `PERSISTENCE_URL` | `http://traefik:8090` | URL base de Persistence por el entrypoint interno de Traefik. La consumen `/upload-pdf` y el CRUD `/documents` |
 | `PERSISTENCE_HOST` | `persistence.pdf-extractext.localhost` | Host header para el router interno de Traefik hacia Persistence |
-| `MAX_FILE_SIZE_MB` | `16` | Límite duro del cuerpo HTTP en MB, aplicado vía `BodyLimit`. Cuenta el multipart COMPLETO |
+| `MAX_FILE_SIZE_MB` | `16` | Límite duro del cuerpo HTTP en MB (multipart completo). Debe ser > 0; se aplica con `BodyLimit` y un lector limitante durante el streaming |
 | `CONSUL_ENABLED` | `false` | Habilita registro, health gate y lectura de KV |
 | `CONSUL_HTTP_ADDR` | `http://consul:8500` | Dirección HTTP del agente Consul |
 | `CONSUL_HTTP_TOKEN` | — | Token ACL enviado en `X-Consul-Token` en todas las peticiones |
@@ -69,13 +69,16 @@ arrancar, se loguea un warning y el servicio arranca con env/defaults
 - El registro ocurre después de bindear el listener; si Consul falla se
   reintenta con backoff exponencial sin impedir el arranque.
 - Ante `SIGTERM`/`SIGINT` el orden es: deregister en Consul → esperar 5 s para
-  el drenaje de Traefik → `app.ShutdownWithTimeout`.
+  el drenaje de Traefik → `app.ShutdownWithTimeout(45s)`. El compose usa
+  `stop_grace_period: 55s` para cubrir 5 s de drenaje + 45 s de shutdown.
 
 ### Health gate
 
 Antes de llamar a Extraction o Persistence se consulta
 `GET /v1/health/service/<nombre>?passing=true`. El resultado se cachea en
 memoria con `sync.RWMutex` durante `CONSUL_HEALTH_CACHE_TTL` (default `3s`).
+Las consultas concurrentes con caché vencido se coalescen con `singleflight`
+del primer caller y no se cancelan si ese caller abandona.
 
 - Si no hay instancias sanas se responde `503` problem+json con code
   `DEPENDENCY_UNAVAILABLE` y **no** se invoca al upstream.
@@ -117,7 +120,8 @@ Health. Lo consume el `healthprobe` del contenedor y los balanceadores.
 ### `POST /extract`
 
 Recibe el PDF (`multipart/form-data`, campo `file`, extensión `.pdf`) y lo
-reenvía al extractor streameando en memoria. No persiste nada.
+reenvía al extractor en streaming, sin materializar el archivo completo. No
+persiste nada.
 
 - **Response 200 (contrato C1 público):**
 
@@ -128,12 +132,12 @@ reenvía al extractor streameando en memoria. No persiste nada.
 | Status | Causa |
 |---|---|
 | 400 | Falta el campo multipart `file` |
-| 413 | El cuerpo supera `MAX_FILE_SIZE_MB` (rechazado por `BodyLimit`) |
+| 413 | El cuerpo supera `MAX_FILE_SIZE_MB` (corte durante el streaming) |
 | 415 | El archivo no tiene extensión `.pdf` |
 | 422 | El extractor rechazó el contenido (`INVALID_PDF_CONTENT`), propagado tal cual |
-| 500 | No se pudo abrir el archivo subido |
+| 500 | Error interno no tipificado |
 | 502 | Fallo de red/timeout o `500` del extractor |
-| 503 | Extractor saturado (`SERVICE_OVERLOADED`), propagado con su `Retry-After` |
+| 503 | Extractor saturado (`SERVICE_OVERLOADED` con `Retry-After`) o dependencia no disponible (`DEPENDENCY_UNAVAILABLE`) |
 
 ### `POST /upload-pdf`
 
@@ -148,11 +152,11 @@ propagación de `X-Request-ID` hacia el extractor.
 | Status | Causa |
 |---|---|
 | 400 | Falta el campo multipart `file` |
-| 413 | El cuerpo supera `MAX_FILE_SIZE_MB` |
+| 413 | El cuerpo supera `MAX_FILE_SIZE_MB` (corte durante el streaming) |
 | 415 | El archivo no tiene extensión `.pdf` |
 | 422 | Contenido PDF inválido, propagado del extractor |
 | 502 | Fallo de red/timeout del extractor o de persistencia |
-| 503 | Extractor saturado, propagado con su `Retry-After` |
+| 503 | Extractor saturado (`Retry-After`) o dependencia no disponible (`DEPENDENCY_UNAVAILABLE`) |
 | 504 | El extractor excedió el timeout |
 
 ### `/documents`
@@ -161,8 +165,8 @@ propagación de `X-Request-ID` hacia el extractor.
   `{id, filename, extracted_text, checksum}`.
 - `GET /documents/{id}` → `200` con el documento; `404` si no existe; `400` si el
   id no es hexadecimal de 24 caracteres (validado antes de llamar a Persistence).
-- `PATCH /documents/{id}` → `200`; renombra (`{"filename": "..."}`); `400` si el
-  cuerpo o el id son inválidos; `404`; `409`.
+- `PATCH /documents/{id}` → `200`; renombra (`{"filename": "..."}` obligatorio);
+  `400` si el cuerpo, `filename` o el id son inválidos; `404`; `409`.
 - `DELETE /documents/{id}` → `204`; `400` si el id es inválido; `404`.
 
 ### Formato de error (RFC 9457)
