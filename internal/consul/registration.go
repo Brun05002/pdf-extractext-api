@@ -78,13 +78,6 @@ func BuildRegistration(opts RegistrationOptions) Registration {
 
 	portValue := strconv.Itoa(port)
 	ruleValue := "Host(`pdf-extractext.localhost`)"
-	traefikKeys := map[string]string{
-		"traefik.enable":                                     "true",
-		"traefik.http.routers.api.rule":                      ruleValue,
-		"traefik.http.routers.api.entrypoints":               "https",
-		"traefik.http.routers.api.tls":                       "true",
-		"traefik.http.services.api.loadbalancer.server.port": portValue,
-	}
 
 	tags := []string{
 		"traefik.enable=true",
@@ -94,12 +87,11 @@ func BuildRegistration(opts RegistrationOptions) Registration {
 		"traefik.http.services.api.loadbalancer.server.port=" + portValue,
 	}
 
-	meta := make(map[string]string, len(traefikKeys)+2)
-	for key, value := range traefikKeys {
-		meta[key] = value
+	// Consul Meta solo admite claves [a-zA-Z0-9_-] (sin puntos); las reglas de Traefik van en Tags.
+	meta := map[string]string{
+		"version": opts.Version,
+		"commit":  opts.Commit,
 	}
-	meta["version"] = opts.Version
-	meta["commit"] = opts.Commit
 
 	return Registration{
 		ID:      "api-" + opts.Hostname,

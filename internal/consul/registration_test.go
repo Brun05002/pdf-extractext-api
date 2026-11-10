@@ -45,11 +45,6 @@ func TestBuildRegistration_Snapshot(t *testing.T) {
 			"traefik.http.services.api.loadbalancer.server.port=8000"
 		],
 		"Meta":{
-			"traefik.enable":"true",
-			"traefik.http.routers.api.rule":"%s",
-			"traefik.http.routers.api.entrypoints":"https",
-			"traefik.http.routers.api.tls":"true",
-			"traefik.http.services.api.loadbalancer.server.port":"8000",
 			"version":"1.2.3",
 			"commit":"abc123"
 		},
@@ -59,7 +54,7 @@ func TestBuildRegistration_Snapshot(t *testing.T) {
 			"Timeout":"2s",
 			"DeregisterCriticalServiceAfter":"1m"
 		}
-	}`, ruleTag, ruleValue)
+	}`, ruleTag)
 
 	assert.Equal(t, "api-node1", reg.ID)
 	assert.JSONEq(t, expected, mustJSON(t, reg))
