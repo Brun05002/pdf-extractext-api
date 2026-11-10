@@ -26,10 +26,19 @@ type Client struct {
 // NewClient crea el cliente con timeout acotado para no bloquear el arranque.
 func NewClient(baseURL, token string) *Client {
 	return &Client{
-		BaseURL:    strings.TrimRight(baseURL, "/"),
+		BaseURL:    normalizeBaseURL(baseURL),
 		Token:      token,
 		HTTPClient: &http.Client{Timeout: 2 * time.Second},
 	}
+}
+
+// normalizeBaseURL antepone http:// cuando CONSUL_HTTP_ADDR viene como host:puerto.
+func normalizeBaseURL(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr != "" && !strings.Contains(addr, "://") {
+		addr = "http://" + addr
+	}
+	return strings.TrimRight(addr, "/")
 }
 
 // Register da de alta un servicio: PUT /v1/agent/service/register.

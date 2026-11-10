@@ -155,3 +155,16 @@ func TestClient_TrimsTrailingSlash(t *testing.T) {
 	client := NewClient(server.URL+"/", testToken)
 	require.NoError(t, client.Register(t.Context(), map[string]any{"ID": "x"}))
 }
+
+func TestClient_NormalizesAddrWithoutScheme(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/v1/agent/service/register", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	hostPort := strings.TrimPrefix(server.URL, "http://")
+	client := NewClient(hostPort, testToken)
+	assert.Equal(t, server.URL, client.BaseURL)
+	require.NoError(t, client.Register(t.Context(), map[string]any{"ID": "x"}))
+}
