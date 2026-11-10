@@ -4,7 +4,7 @@
 
 # ---- Stage 1: build ----
 # La directiva go de go.mod exige >= 1.27.1; se pinnea el digest igualmente.
-FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
+FROM golang:1.27-alpine@sha256:eb61c3873c97416fff0116553fff65d67a3549f72e11d9758849a689cdd8b523 AS build
 WORKDIR /src
 
 # Capas de dependencias primero; cache mounts aceleran rebuilds en CI.
