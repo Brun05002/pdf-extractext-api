@@ -89,10 +89,17 @@ func openPDFInput(c *fiber.Ctx, maxBytes int64) (*pdfInput, error) {
 			return nil, fiber.NewError(fiber.StatusUnsupportedMediaType, "solo se aceptan archivos PDF")
 		}
 
+		// Valida los magic bytes para rechazar binarios no-PDF antes del streaming.
+		magic := make([]byte, 4)
+		n, err := io.ReadFull(part, magic)
+		if err != nil || n < 4 || !bytes.Equal(magic[:4], []byte("%PDF")) {
+			return nil, fiber.NewError(fiber.StatusUnsupportedMediaType, "solo se aceptan archivos PDF")
+		}
+
 		success = true
 		return &pdfInput{
 			Filename:  filename,
-			Reader:    part,
+			Reader:    io.MultiReader(bytes.NewReader(magic[:n]), part),
 			closeBody: c.Request().CloseBodyStream,
 			limit:     limit,
 		}, nil

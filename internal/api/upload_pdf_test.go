@@ -63,7 +63,7 @@ func TestUploadPDF_OK(t *testing.T) {
 	}, nil)
 
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("pdf"), "req-abc-123"))
+	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("%PDF-test"), "req-abc-123"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusCreated, resp.StatusCode)
@@ -83,7 +83,7 @@ func TestUploadPDF_Conflict(t *testing.T) {
 	repo.On("Save", mock.Anything, mock.Anything, mock.Anything).Return(nil, services.ErrConflict)
 
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("pdf"), "req-dup"))
+	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("%PDF-test"), "req-dup"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
@@ -103,7 +103,7 @@ func TestUploadPDF_PropagatesRequestID(t *testing.T) {
 		Return(&services.Document{ID: "doc-1", Filename: "a.pdf", ExtractedText: "texto", Checksum: "sum-1"}, nil)
 
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "a.pdf", []byte("pdf"), "mi-request-id"))
+	resp, err := app.Test(uploadRequest(t, "file", "a.pdf", []byte("%PDF-test"), "mi-request-id"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusCreated, resp.StatusCode)
@@ -131,7 +131,7 @@ func TestUploadPDF_Timeout(t *testing.T) {
 	app := newUploadApp(client, repo)
 
 	start := time.Now()
-	resp, err := app.Test(uploadRequest(t, "file", "lento.pdf", []byte("pdf"), "req-timeout"))
+	resp, err := app.Test(uploadRequest(t, "file", "lento.pdf", []byte("%PDF-test"), "req-timeout"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusGatewayTimeout, resp.StatusCode)
@@ -151,7 +151,7 @@ func TestUploadPDF_NetworkTimeout(t *testing.T) {
 
 	repo := new(MockPersistenceRepository)
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("pdf"), "req-nettimeout"))
+	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-nettimeout"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusGatewayTimeout, resp.StatusCode)
@@ -182,7 +182,7 @@ func TestUploadPDF_UpstreamError(t *testing.T) {
 
 	repo := new(MockPersistenceRepository)
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("pdf"), "req-err"))
+	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-err"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
@@ -198,7 +198,7 @@ func TestUploadPDF_InvalidContract(t *testing.T) {
 
 	repo := new(MockPersistenceRepository)
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("pdf"), "req-contrato"))
+	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-contrato"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
@@ -217,7 +217,7 @@ func TestUploadPDF_PersistenceError(t *testing.T) {
 		Return(nil, errors.New("persistence upstream: connection refused"))
 
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("pdf"), "req-persist"))
+	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-persist"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
@@ -244,7 +244,7 @@ func TestUploadPDF_RequestIDHeaderThroughHTTPClient(t *testing.T) {
 
 	app := newUploadApp(client, repo)
 
-	resp, err := app.Test(uploadRequest(t, "file", "e2e.pdf", []byte("pdf"), "req-e2e-999"))
+	resp, err := app.Test(uploadRequest(t, "file", "e2e.pdf", []byte("%PDF-test"), "req-e2e-999"))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusCreated, resp.StatusCode)
@@ -316,7 +316,7 @@ func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {
 			repo := new(MockPersistenceRepository)
 			app := newUploadApp(client, repo)
 
-			resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("pdf"), "req-prop"))
+			resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-prop"))
 			require.NoError(t, err)
 			defer resp.Body.Close()
 

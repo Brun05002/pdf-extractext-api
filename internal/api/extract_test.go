@@ -57,7 +57,7 @@ func TestExtract_OK_StreamsToClient(t *testing.T) {
 		Return(&services.ExtractionResult{Content: "texto extraido", PageCount: 3}, nil)
 
 	app := newExtractApp(client, 5)
-	resp, err := app.Test(multipartRequest(t, "file", "documento.pdf", []byte("fake-pdf")))
+	resp, err := app.Test(multipartRequest(t, "file", "documento.pdf", []byte("%PDF-fake-pdf")))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
@@ -154,7 +154,7 @@ func TestExtract_UpstreamError(t *testing.T) {
 		Return(nil, errors.New("extraction upstream: timeout"))
 
 	app := newExtractApp(client, 5)
-	resp, err := app.Test(multipartRequest(t, "file", "doc.pdf", []byte("pdf")))
+	resp, err := app.Test(multipartRequest(t, "file", "doc.pdf", []byte("%PDF-upstream-err")))
 	require.NoError(t, err)
 
 	assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
@@ -179,7 +179,7 @@ func TestExtract_IncompleteUpstreamResponse(t *testing.T) {
 				Return(tc.result, nil)
 
 			app := newExtractApp(client, 5)
-			resp, err := app.Test(multipartRequest(t, "file", "doc.pdf", []byte("pdf")))
+			resp, err := app.Test(multipartRequest(t, "file", "doc.pdf", []byte("%PDF-incomplete")))
 			require.NoError(t, err)
 
 			assert.Equal(t, fiber.StatusBadGateway, resp.StatusCode)
@@ -187,4 +187,14 @@ func TestExtract_IncompleteUpstreamResponse(t *testing.T) {
 			assert.Contains(t, string(body), "BAD_GATEWAY")
 		})
 	}
+}
+
+func TestExtract_RejectsFileWithoutPDFMagic(t *testing.T) {
+	client := new(MockExtractionClient)
+	app := newExtractApp(client, 5)
+
+	resp, err := app.Test(multipartRequest(t, "file", "documento.pdf", []byte("no-pdf-magic")))
+	require.NoError(t, err)
+
+	assert.Equal(t, fiber.StatusUnsupportedMediaType, resp.StatusCode)
 }

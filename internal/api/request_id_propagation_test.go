@@ -26,7 +26,7 @@ func TestRequestID_GeneratedWithoutHeader_PropagatedToUpstreams(t *testing.T) {
 		Return(&services.Document{ID: "doc-1"}, nil).Once()
 
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("pdf"), ""))
+	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("%PDF-test"), ""))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -49,7 +49,7 @@ func TestRequestID_IncomingHeader_PropagatedToUpstreams(t *testing.T) {
 		Return(&services.Document{ID: "doc-1"}, nil).Once()
 
 	app := newUploadApp(client, repo)
-	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("pdf"), incoming))
+	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("%PDF-test"), incoming))
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
