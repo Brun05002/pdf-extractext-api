@@ -5,19 +5,21 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
 func main() {
-	port := os.Getenv("PORT")
+	port := strings.TrimPrefix(strings.TrimSpace(os.Getenv("PORT")), ":")
 	if port == "" {
-		port = ":8000"
+		port = "8000"
 	}
 
 	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get("http://127.0.0.1" + port + "/")
+	resp, err := client.Get("http://" + net.JoinHostPort("127.0.0.1", port) + "/")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "healthprobe: %v\n", err)
 		os.Exit(1)

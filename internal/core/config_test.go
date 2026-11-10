@@ -12,7 +12,7 @@ func clearConsulEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"CONSUL_HTTP_ADDR", "CONSUL_HTTP_TOKEN", "CONSUL_ENABLED",
-		"SERVICE_NAME", "SERVICE_PORT", "SERVICE_HEALTH_PATH",
+		"SERVICE_NAME", "SERVICE_HEALTH_PATH", "PORT",
 		"CONSUL_HEALTH_CACHE_TTL", "CONSUL_HEALTH_FAIL_OPEN",
 	} {
 		t.Setenv(key, "")
@@ -32,6 +32,7 @@ func TestLoadConfig_OK(t *testing.T) {
 }
 
 func TestLoadConfig_Defaults(t *testing.T) {
+	t.Setenv("PORT", "")
 	t.Setenv("EXTRACTION_URL", "http://extraction:8081")
 	t.Setenv("PERSISTENCE_URL", "http://persistence:8082")
 
@@ -39,6 +40,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(16), cfg.MaxFileSizeMB, "debe aplicar default de 16MB")
 	assert.Equal(t, ":8000", cfg.Port, "debe aplicar puerto default")
+	assert.Equal(t, 8000, cfg.ServicePort, "Consul debe usar el mismo puerto")
 }
 
 func TestLoadConfig_URLDefaults(t *testing.T) {
@@ -92,7 +94,7 @@ func TestLoadConfig_ConsulOverrides(t *testing.T) {
 	t.Setenv("CONSUL_HTTP_TOKEN", "secreto")
 	t.Setenv("CONSUL_ENABLED", "true")
 	t.Setenv("SERVICE_NAME", "api")
-	t.Setenv("SERVICE_PORT", "9000")
+	t.Setenv("PORT", "9000")
 	t.Setenv("SERVICE_HEALTH_PATH", "/health")
 	t.Setenv("CONSUL_HEALTH_CACHE_TTL", "5s")
 	t.Setenv("CONSUL_HEALTH_FAIL_OPEN", "false")
@@ -103,6 +105,7 @@ func TestLoadConfig_ConsulOverrides(t *testing.T) {
 	assert.Equal(t, "secreto", cfg.ConsulToken)
 	assert.True(t, cfg.ConsulEnabled)
 	assert.Equal(t, "api", cfg.ServiceName)
+	assert.Equal(t, ":9000", cfg.Port)
 	assert.Equal(t, 9000, cfg.ServicePort)
 	assert.Equal(t, "/health", cfg.ServiceHealthPath)
 	assert.Equal(t, 5*time.Second, cfg.ConsulHealthCacheTTL)
@@ -120,15 +123,27 @@ func TestLoadConfig_InvalidConsulTTL(t *testing.T) {
 	assert.Contains(t, err.Error(), "CONSUL_HEALTH_CACHE_TTL")
 }
 
-func TestLoadConfig_InvalidServicePort(t *testing.T) {
+func TestLoadConfig_InvalidPort(t *testing.T) {
 	clearConsulEnv(t)
 	t.Setenv("EXTRACTION_URL", "http://extraction:8081")
 	t.Setenv("PERSISTENCE_URL", "http://persistence:8082")
-	t.Setenv("SERVICE_PORT", "no-es-puerto")
+	t.Setenv("PORT", "no-es-puerto")
 
 	_, err := LoadConfig()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "SERVICE_PORT")
+	assert.Contains(t, err.Error(), "PORT")
+}
+
+func TestLoadConfig_PortWithColon(t *testing.T) {
+	clearConsulEnv(t)
+	t.Setenv("PORT", ":9001")
+	t.Setenv("EXTRACTION_URL", "http://extraction:8081")
+	t.Setenv("PERSISTENCE_URL", "http://persistence:8082")
+
+	cfg, err := LoadConfig()
+	require.NoError(t, err)
+	assert.Equal(t, ":9001", cfg.Port)
+	assert.Equal(t, 9001, cfg.ServicePort)
 }
 
 func TestApplyKV_EnvWinsOverKV(t *testing.T) {

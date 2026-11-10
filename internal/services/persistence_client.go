@@ -37,6 +37,7 @@ type saveDocumentRequest struct {
 type PersistenceRepository interface {
 	Save(ctx context.Context, requestID string, doc *Document) (*Document, error)
 	FindByID(ctx context.Context, requestID, id string) (*Document, error)
+	FindByChecksum(ctx context.Context, requestID, checksum string) (*Document, error)
 	FindAll(ctx context.Context, requestID string) ([]*Document, error)
 	Update(ctx context.Context, requestID, id string, doc *Document) (*Document, error)
 	Delete(ctx context.Context, requestID, id string) error
@@ -84,13 +85,14 @@ func (c *HTTPPersistenceClient) Save(ctx context.Context, requestID string, doc 
 		return nil, fmt.Errorf("serializar documento: %w", err)
 	}
 
-	req, err := c.newRequest(ctx, http.MethodPost, "/documents", requestID, bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.client.Do(req)
+	resp, err := doWithRetry(ctx, c.client, func() (*http.Request, error) {
+		req, err := c.newRequest(ctx, http.MethodPost, "/documents", requestID, bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("persistence upstream: %w", err)
 	}
@@ -112,12 +114,18 @@ func (c *HTTPPersistenceClient) Save(ctx context.Context, requestID string, doc 
 
 // FindByID obtiene un documento (GET /documents/{id}). 404 -> ErrNotFound.
 func (c *HTTPPersistenceClient) FindByID(ctx context.Context, requestID, id string) (*Document, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, "/documents/"+id, requestID, nil)
-	if err != nil {
-		return nil, err
-	}
+	return c.find(ctx, requestID, "/documents/"+id)
+}
 
-	resp, err := c.client.Do(req)
+// FindByChecksum obtiene un documento por su SHA-256 (GET /documents/by-checksum/{checksum}).
+func (c *HTTPPersistenceClient) FindByChecksum(ctx context.Context, requestID, checksum string) (*Document, error) {
+	return c.find(ctx, requestID, "/documents/by-checksum/"+checksum)
+}
+
+func (c *HTTPPersistenceClient) find(ctx context.Context, requestID, path string) (*Document, error) {
+	resp, err := doWithRetry(ctx, c.client, func() (*http.Request, error) {
+		return c.newRequest(ctx, http.MethodGet, path, requestID, nil)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("persistence upstream: %w", err)
 	}
@@ -147,13 +155,14 @@ func (c *HTTPPersistenceClient) Update(ctx context.Context, requestID, id string
 		return nil, fmt.Errorf("serializar documento: %w", err)
 	}
 
-	req, err := c.newRequest(ctx, http.MethodPatch, "/documents/"+id, requestID, bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.client.Do(req)
+	resp, err := doWithRetry(ctx, c.client, func() (*http.Request, error) {
+		req, err := c.newRequest(ctx, http.MethodPatch, "/documents/"+id, requestID, bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("persistence upstream: %w", err)
 	}
@@ -178,12 +187,9 @@ func (c *HTTPPersistenceClient) Update(ctx context.Context, requestID, id string
 }
 
 func (c *HTTPPersistenceClient) Delete(ctx context.Context, requestID, id string) error {
-	req, err := c.newRequest(ctx, http.MethodDelete, "/documents/"+id, requestID, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := c.client.Do(req)
+	resp, err := doWithRetry(ctx, c.client, func() (*http.Request, error) {
+		return c.newRequest(ctx, http.MethodDelete, "/documents/"+id, requestID, nil)
+	})
 	if err != nil {
 		return fmt.Errorf("persistence upstream: %w", err)
 	}
@@ -199,12 +205,9 @@ func (c *HTTPPersistenceClient) Delete(ctx context.Context, requestID, id string
 }
 
 func (c *HTTPPersistenceClient) FindAll(ctx context.Context, requestID string) ([]*Document, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, "/documents", requestID, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.client.Do(req)
+	resp, err := doWithRetry(ctx, c.client, func() (*http.Request, error) {
+		return c.newRequest(ctx, http.MethodGet, "/documents", requestID, nil)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("persistence upstream: %w", err)
 	}

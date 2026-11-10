@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -35,9 +36,9 @@ const (
 )
 
 func LoadConfig() (*Config, error) {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = ":8000"
+	port, servicePort, err := loadPort()
+	if err != nil {
+		return nil, err
 	}
 
 	extractionURL := envOrDefault("EXTRACTION_URL", defaultExtractionURL)
@@ -51,11 +52,6 @@ func LoadConfig() (*Config, error) {
 	}
 
 	consulEnabled, err := loadBool("CONSUL_ENABLED", false)
-	if err != nil {
-		return nil, err
-	}
-
-	servicePort, err := loadInt("SERVICE_PORT", 8000)
 	if err != nil {
 		return nil, err
 	}
@@ -145,16 +141,17 @@ func parseMaxFileSize(raw, source string) (int64, error) {
 	return size, nil
 }
 
-func loadInt(key string, fallback int) (int, error) {
-	raw := os.Getenv(key)
+// loadPort normaliza PORT a ":<puerto>" para el listener y a entero para Consul.
+func loadPort() (string, int, error) {
+	raw := strings.TrimSpace(os.Getenv("PORT"))
 	if raw == "" {
-		return fallback, nil
+		raw = "8000"
 	}
-	value, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, fmt.Errorf("%s inválido: %w", key, err)
+	value, err := strconv.Atoi(strings.TrimPrefix(raw, ":"))
+	if err != nil || value < 1 || value > 65535 {
+		return "", 0, fmt.Errorf("PORT inválido: %q", raw)
 	}
-	return value, nil
+	return fmt.Sprintf(":%d", value), value, nil
 }
 
 func loadDuration(key string, fallback time.Duration) (time.Duration, error) {

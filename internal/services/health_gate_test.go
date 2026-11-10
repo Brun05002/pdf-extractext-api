@@ -107,6 +107,11 @@ func (c *countingPersistence) FindByID(ctx context.Context, requestID, id string
 	return &Document{ID: id}, nil
 }
 
+func (c *countingPersistence) FindByChecksum(ctx context.Context, requestID, checksum string) (*Document, error) {
+	c.calls++
+	return nil, ErrNotFound
+}
+
 func (c *countingPersistence) FindAll(ctx context.Context, requestID string) ([]*Document, error) {
 	c.calls++
 	return nil, nil

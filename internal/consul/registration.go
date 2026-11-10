@@ -84,6 +84,7 @@ func BuildRegistration(opts RegistrationOptions) Registration {
 		"traefik.http.routers.api.rule=" + ruleValue,
 		"traefik.http.routers.api.entrypoints=https",
 		"traefik.http.routers.api.tls=true",
+		"traefik.http.routers.api.middlewares=rate-limit@file",
 		"traefik.http.services.api.loadbalancer.server.port=" + portValue,
 	}
 
