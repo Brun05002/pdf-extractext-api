@@ -76,7 +76,7 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 	}
 
 	// Validación del contrato C1.
-	if err := validateExtractionResult(result); err != nil {
+	if err = validateExtractionResult(result); err != nil {
 		return problem(c, fiber.StatusBadGateway, "BAD_GATEWAY", "respuesta del extractor no cumple el contrato: "+err.Error())
 	}
 

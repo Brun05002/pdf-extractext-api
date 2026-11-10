@@ -223,7 +223,7 @@ func TestApplyKV_IgnoresUnknownKeysAndSecrets(t *testing.T) {
 	cfg, err := LoadConfig()
 	require.NoError(t, err)
 
-	err = ApplyKV(cfg, map[string]string{
+	err = ApplyKV(cfg, map[string]string{ //nolint:gosec // credenciales ficticias para verificar que ApplyKV las ignora.
 		"MONGO_URI":         "mongodb://secreto",
 		"CONSUL_HTTP_TOKEN": "token-filtrado",
 		"CLAVE_DESCONOCIDA": "ignorada",
