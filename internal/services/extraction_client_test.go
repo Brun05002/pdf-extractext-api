@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,6 +81,79 @@ func TestExtractionClient_UpstreamError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, ue.Status)
 }
 
+type nonSeeker struct {
+	io.Reader
+}
+
+func TestExtractionClient_RetriesServiceUnavailableForSeekableBody(t *testing.T) {
+	var calls atomic.Int32
+	var mu sync.Mutex
+	var received []string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		body, _ := io.ReadAll(file)
+		_ = file.Close()
+		mu.Lock()
+		received = append(received, string(body))
+		mu.Unlock()
+
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":"ok","page_count":1}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPExtractionClient(server.URL, "extraction.test", 3*time.Second)
+	result, err := client.Extract(t.Context(), "rid", "doc.pdf", strings.NewReader("pdf-content"))
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), calls.Load())
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"pdf-content", "pdf-content"}, received)
+	assert.Equal(t, "ok", result.Content)
+}
+
+func TestExtractionClient_DoesNotRetryNonSeekableBody(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	client := NewHTTPExtractionClient(server.URL, "extraction.test", 3*time.Second)
+	_, err := client.Extract(t.Context(), "rid", "doc.pdf", nonSeeker{strings.NewReader("pdf")})
+	var ue *UpstreamError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, http.StatusServiceUnavailable, ue.Status)
+	assert.Equal(t, int32(1), calls.Load())
+}
+
+func TestExtractionClient_DoesNotRetryInternalServerError(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := NewHTTPExtractionClient(server.URL, "extraction.test", 3*time.Second)
+	_, err := client.Extract(t.Context(), "rid", "doc.pdf", strings.NewReader("pdf"))
+	var ue *UpstreamError
+	require.ErrorAs(t, err, &ue)
+	assert.Equal(t, http.StatusInternalServerError, ue.Status)
+	assert.Equal(t, int32(1), calls.Load())
+}
+
 func TestExtractionClient_ClosesPipeOnRequestConstructionError(t *testing.T) {
 	client := NewHTTPExtractionClient("://invalid-url", "extraction.test", time.Second)
 
@@ -112,7 +187,7 @@ func assertNoExtractProducerGoroutine(t *testing.T) {
 	for time.Now().Before(deadline) {
 		buf := make([]byte, 1<<20)
 		n := runtime.Stack(buf, true)
-		if !bytes.Contains(buf[:n], []byte("HTTPExtractionClient).Extract.func1")) {
+		if !bytes.Contains(buf[:n], []byte("HTTPExtractionClient).extractAttempt.func1")) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

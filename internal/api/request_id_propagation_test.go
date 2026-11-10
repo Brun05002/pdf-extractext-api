@@ -22,6 +22,8 @@ func TestRequestID_GeneratedWithoutHeader_PropagatedToUpstreams(t *testing.T) {
 		Return(validC1Result(), nil).Once()
 
 	repo := new(MockPersistenceRepository)
+	repo.On("FindByChecksum", mock.Anything, isNonEmpty, mock.Anything).
+		Return(nil, services.ErrNotFound).Once()
 	repo.On("Save", mock.Anything, isNonEmpty, mock.Anything).
 		Return(&services.Document{ID: "doc-1"}, nil).Once()
 
@@ -45,6 +47,8 @@ func TestRequestID_IncomingHeader_PropagatedToUpstreams(t *testing.T) {
 		Return(validC1Result(), nil).Once()
 
 	repo := new(MockPersistenceRepository)
+	repo.On("FindByChecksum", mock.Anything, incoming, mock.Anything).
+		Return(nil, services.ErrNotFound).Once()
 	repo.On("Save", mock.Anything, incoming, mock.Anything).
 		Return(&services.Document{ID: "doc-1"}, nil).Once()
 

@@ -38,7 +38,7 @@ arrancar, se loguea un warning y el servicio arranca con env/defaults
 
 | Variable | Default | Descripción |
 |---|---|---|
-| `PORT` | `:8000` | Puerto de escucha. **Formato `net/http`: con dos puntos iniciales** |
+| `PORT` | `:8000` | Puerto único de escucha y registro en Consul. Acepta `8000` o `:8000`; se normaliza a `:<puerto>` para Fiber |
 | `EXTRACTION_URL` | `http://traefik:8090` | URL base del extractor por el entrypoint interno de Traefik. `http://extraction:8001` solo para uso aislado sin Traefik |
 | `EXTRACTION_HOST` | `extraction.pdf-extractext.localhost` | Host header para el router interno de Traefik hacia Extraction |
 | `PERSISTENCE_URL` | `http://traefik:8090` | URL base de Persistence por el entrypoint interno de Traefik. La consumen `/upload-pdf` y el CRUD `/documents` |
@@ -48,7 +48,6 @@ arrancar, se loguea un warning y el servicio arranca con env/defaults
 | `CONSUL_HTTP_ADDR` | `http://consul:8500` | Dirección HTTP del agente Consul |
 | `CONSUL_HTTP_TOKEN` | — | Token ACL enviado en `X-Consul-Token` en todas las peticiones |
 | `SERVICE_NAME` | `pdf-extractext-api` | Nombre con el que se registra el servicio |
-| `SERVICE_PORT` | `8000` | Puerto publicado en el registro de Consul |
 | `SERVICE_HEALTH_PATH` | `/` | Ruta del check HTTP que ejecuta Consul |
 | `CONSUL_HEALTH_CACHE_TTL` | `3s` | TTL del caché en memoria del health gate |
 | `CONSUL_HEALTH_FAIL_OPEN` | `true` | Si Consul no responde, permite la llamada al upstream (si es `false`, responde 503) |
@@ -62,9 +61,10 @@ arrancar, se loguea un warning y el servicio arranca con env/defaults
   (nunca loopback).
 - Los `Tags` de Traefik v3.5 habilitan el servicio (`traefik.enable=true`),
   declaran el router `api` con `Host(`pdf-extractext.localhost`)`,
-  `entrypoints=https`, `tls=true` y el puerto `8000`; las mismas claves se
-  replican en `Meta` junto con `version` y `commit`.
-- El check HTTP apunta a `http://<address>:8000<health_path>` con
+  `entrypoints=https`, `tls=true`, el middleware `rate-limit@file` y el puerto
+  normalizado desde `PORT`; las mismas claves se replican en `Meta` junto con
+  `version` y `commit`.
+- El check HTTP apunta a `http://<address>:<PORT><health_path>` con
   `Interval=10s`, `Timeout=2s` y `DeregisterCriticalServiceAfter=1m`.
 - El registro ocurre después de bindear el listener; si Consul falla se
   reintenta con backoff exponencial sin impedir el arranque.
@@ -121,7 +121,8 @@ Health. Lo consume el `healthprobe` del contenedor y los balanceadores.
 
 Recibe el PDF (`multipart/form-data`, campo `file`, extensión `.pdf`) y lo
 reenvía al extractor en streaming, sin materializar el archivo completo. No
-persiste nada.
+persiste nada. Este endpoint no reintenta: un único intento para preservar el
+streaming puro.
 
 - **Response 200 (contrato C1 público):**
 
@@ -141,23 +142,35 @@ persiste nada.
 
 ### `POST /upload-pdf`
 
-Extrae (C1) y persiste (C2) en una sola llamada, con timeout estricto de 30 s y
-propagación de `X-Request-ID` hacia el extractor.
+Ejecuta la SAGA de extracción (C1) y persistencia (C2) con timeout de 30 s y
+propagación de `X-Request-ID`:
+
+1. Guarda el PDF en un archivo temporal bajo `/tmp` (tmpfs acotado en compose)
+   mientras calcula su SHA-256.
+2. Consulta `GET /documents/by-checksum/{checksum}` en Persistence. Si existe,
+   responde `409` sin invocar al extractor.
+3. Si no existe, rebobina el temporal y llama al extractor. Solo este cuerpo es
+   rebobinable, por lo que los reintentos ante red, `503` o `429` (máximo 3
+   intentos, respetando `Retry-After`) aplican aquí y no en `/extract`.
+4. Persiste el resultado; Persistence también reintenta `503`/`429` de forma
+   acotada. Si la consulta de checksum falla, la API falla cerrado y no extrae.
+5. Elimina el temporal al terminar.
 
 - **Response 201:** el documento persistido
   `{ "id": "...", "filename": "...", "extracted_text": "...", "checksum": "..." }`.
-- **409:** ya existe un documento con el mismo `checksum` (barrera anti-TOCTOU
-  del índice único).
+- **409:** ya existe un documento con el mismo `checksum` (precheck o índice
+  único anti-TOCTOU).
 
 | Status | Causa |
 |---|---|
 | 400 | Falta el campo multipart `file` |
+| 409 | Ya existe un documento con ese checksum |
 | 413 | El cuerpo supera `MAX_FILE_SIZE_MB` (corte durante el streaming) |
 | 415 | El archivo no tiene extensión `.pdf` |
 | 422 | Contenido PDF inválido, propagado del extractor |
 | 502 | Fallo de red/timeout del extractor o de persistencia |
-| 503 | Extractor saturado (`Retry-After`) o dependencia no disponible (`DEPENDENCY_UNAVAILABLE`) |
-| 504 | El extractor excedió el timeout |
+| 503 | Extractor saturado (`Retry-After`) o dependencia no disponible (`DEPENDENCY_UNAVAILABLE`); el precheck falla cerrado |
+| 504 | La SAGA agotó el timeout de 30 s |
 
 ### `/documents`
 

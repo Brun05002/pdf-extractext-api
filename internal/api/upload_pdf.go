@@ -2,7 +2,12 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"io"
+	"os"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,7 +15,7 @@ import (
 	"github.com/pdf-extractext/api/internal/services"
 )
 
-// uploadTimeout es el límite estricto end-to-end hacia el extractor.
+// uploadTimeout acota la SAGA (lookup, extracción y persistencia).
 // Es variable para permitir acortarlo en tests.
 var uploadTimeout = 30 * time.Second
 
@@ -40,22 +45,34 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 	// El Request-ID vive en Locals: el middleware lo genera si el cliente no lo envió.
 	requestID := core.RequestIDFrom(c)
 
+	spooled, checksum, err := spoolPDF(input)
+	if err != nil {
+		if errors.Is(err, errBodyTooLarge) || input.LimitExceeded() {
+			return requestTooLargeError()
+		}
+		return problem(c, fiber.StatusInternalServerError, "INTERNAL_ERROR", "no se pudo preparar el archivo")
+	}
+	defer spooled.Cleanup()
+
 	// Timeout estricto derivado del request original.
 	ctx, cancel := context.WithTimeout(c.Context(), uploadTimeout)
 	defer cancel()
 
-	result, err := h.extractor.Extract(ctx, requestID, input.Filename, input)
+	existing, err := h.repo.FindByChecksum(ctx, requestID, checksum)
+	if err == nil && existing != nil {
+		// El error handler global lo traduce a 409 CONFLICT.
+		return services.ErrConflict
+	}
+	if err != nil && !errors.Is(err, services.ErrNotFound) {
+		return respondUpstream(c, err, "fallo en el servicio de persistencia")
+	}
+
+	result, err := h.extractor.Extract(ctx, requestID, input.Filename, spooled)
 	if err != nil {
-		if input.LimitExceeded() {
-			return requestTooLargeError()
-		}
 		if isTimeout(err) || ctx.Err() != nil {
 			return problem(c, fiber.StatusGatewayTimeout, "GATEWAY_TIMEOUT", "el servicio de extracción excedió el tiempo límite")
 		}
 		return respondUpstream(c, err, "fallo en el servicio de extracción")
-	}
-	if input.LimitExceeded() {
-		return requestTooLargeError()
 	}
 
 	// Validación del contrato C1.
@@ -78,6 +95,48 @@ func (h *uploadPDFHandler) handle(c *fiber.Ctx) error {
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(saved)
+}
+
+type spooledPDF struct {
+	*os.File
+}
+
+func (s *spooledPDF) Cleanup() {
+	name := s.Name()
+	_ = s.Close()
+	_ = os.Remove(name)
+}
+
+func spoolPDF(input *pdfInput) (*spooledPDF, string, error) {
+	file, err := os.CreateTemp("", "pdf-extractext-upload-*.pdf")
+	if err != nil {
+		return nil, "", fmt.Errorf("crear archivo temporal: %w", err)
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			name := file.Name()
+			_ = file.Close()
+			_ = os.Remove(name)
+		}
+	}()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(file, hasher), input); err != nil {
+		if input.LimitExceeded() {
+			return nil, "", errBodyTooLarge
+		}
+		return nil, "", fmt.Errorf("copiar PDF a temporal: %w", err)
+	}
+	if input.LimitExceeded() {
+		return nil, "", errBodyTooLarge
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, "", fmt.Errorf("rebobinar temporal: %w", err)
+	}
+
+	cleanup = false
+	return &spooledPDF{File: file}, hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 // validateExtractionResult verifica el contrato C1: content no vacío y page_count positivo.

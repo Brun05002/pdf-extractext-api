@@ -24,7 +24,7 @@ func TestEnvExample_DocumentsAllVariables(t *testing.T) {
 		"PORT", "EXTRACTION_URL", "EXTRACTION_HOST",
 		"PERSISTENCE_URL", "PERSISTENCE_HOST", "MAX_FILE_SIZE_MB",
 		"CONSUL_ENABLED", "CONSUL_HTTP_ADDR", "CONSUL_HTTP_TOKEN",
-		"SERVICE_NAME", "SERVICE_PORT", "SERVICE_HEALTH_PATH",
+		"SERVICE_NAME", "SERVICE_HEALTH_PATH",
 		"CONSUL_HEALTH_CACHE_TTL", "CONSUL_HEALTH_FAIL_OPEN",
 	} {
 		assert.Contains(t, env, key+"=", "falta %s en .env.example", key)

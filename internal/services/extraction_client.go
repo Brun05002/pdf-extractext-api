@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -40,12 +41,56 @@ func NewHTTPExtractionClient(baseURL, host string, timeout time.Duration) *HTTPE
 }
 
 // Extract envía el PDF como multipart/form-data streameando por io.Pipe: el cuerpo nunca se materializa entero.
+// Solo reintenta cuerpos rebobinables para no consumir streams de /extract más de una vez.
 func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename string, body io.Reader) (*ExtractionResult, error) {
+	seeker, replayable := body.(io.Seeker)
+	if !replayable {
+		return c.extractAttempt(ctx, requestID, filename, body, false)
+	}
+
+	retryAfter := ""
+	for attempt := 1; attempt <= defaultMaxAttempts; attempt++ {
+		if attempt > 1 {
+			if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+				return nil, fmt.Errorf("rebobinar cuerpo: %w", err)
+			}
+			if err := sleepBeforeRetry(ctx, attempt-1, retryAfter); err != nil {
+				return nil, err
+			}
+			retryAfter = ""
+		}
+
+		result, err := c.extractAttempt(ctx, requestID, filename, body, true)
+		if err == nil {
+			return result, nil
+		}
+
+		var upstream *UpstreamError
+		if errors.As(err, &upstream) {
+			retryAfter = upstream.RetryAfter
+		}
+		if !isRetryableExtractionError(err) || attempt == defaultMaxAttempts {
+			return nil, err
+		}
+	}
+	return nil, errors.New("extraction upstream: reintentos agotados")
+}
+
+func isRetryableExtractionError(err error) bool {
+	var upstream *UpstreamError
+	if errors.As(err, &upstream) {
+		return retryableStatus(upstream.Status)
+	}
+	return retryableError(err)
+}
+
+func (c *HTTPExtractionClient) extractAttempt(ctx context.Context, requestID, filename string, body io.Reader, waitProducer bool) (*ExtractionResult, error) {
 	pr, pw := io.Pipe()
 	writer := multipart.NewWriter(pw)
 	contentType := writer.FormDataContentType()
-	defer pr.Close()
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		part, err := writer.CreateFormFile("file", filename)
 		if err == nil {
 			_, err = io.Copy(part, body)
@@ -56,9 +101,16 @@ func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename 
 		_ = pw.CloseWithError(err)
 	}()
 
+	stopProducer := func() {
+		_ = pr.CloseWithError(io.ErrClosedPipe)
+		if waitProducer {
+			<-done
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/extract", pr)
 	if err != nil {
-		_ = pr.CloseWithError(err)
+		stopProducer()
 		return nil, fmt.Errorf("construir request: %w", err)
 	}
 	req.Header.Set("Content-Type", contentType)
@@ -72,17 +124,23 @@ func (c *HTTPExtractionClient) Extract(ctx context.Context, requestID, filename 
 
 	resp, err := c.client.Do(req)
 	if err != nil {
+		stopProducer()
 		return nil, fmt.Errorf("extraction upstream: %w", err)
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, readUpstreamError(resp)
+		upstreamErr := readUpstreamError(resp)
+		_ = resp.Body.Close()
+		stopProducer()
+		return nil, upstreamErr
 	}
 
 	var result ExtractionResult
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decodificar respuesta del upstream: %w", err)
+	decodeErr := json.NewDecoder(resp.Body).Decode(&result)
+	_ = resp.Body.Close()
+	stopProducer()
+	if decodeErr != nil {
+		return nil, fmt.Errorf("decodificar respuesta del upstream: %w", decodeErr)
 	}
 	return &result, nil
 }

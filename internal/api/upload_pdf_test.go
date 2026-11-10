@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net"
@@ -29,6 +31,11 @@ func newUploadApp(client services.ExtractionClient, repo services.PersistenceRep
 	return app
 }
 
+func expectChecksumMiss(repo *MockPersistenceRepository) {
+	repo.On("FindByChecksum", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, services.ErrNotFound).Once()
+}
+
 func validC1Result() *services.ExtractionResult {
 	return &services.ExtractionResult{
 		Filename:      "documento.pdf",
@@ -51,6 +58,7 @@ func TestUploadPDF_OK(t *testing.T) {
 		Return(validC1Result(), nil)
 
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	repo.On("Save", mock.Anything, mock.Anything, mock.MatchedBy(func(d *services.Document) bool {
 		return d.Filename == "documento.pdf" &&
 			d.ExtractedText == "texto" &&
@@ -73,6 +81,44 @@ func TestUploadPDF_OK(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
+func TestUploadPDF_ChecksumCacheHitSkipsExtraction(t *testing.T) {
+	content := []byte("%PDF-test")
+	sum := sha256.Sum256(content)
+	checksum := hex.EncodeToString(sum[:])
+
+	client := new(MockExtractionClient)
+	repo := new(MockPersistenceRepository)
+	repo.On("FindByChecksum", mock.Anything, "req-cache", checksum).
+		Return(&services.Document{ID: "doc-existente", Filename: "documento.pdf", Checksum: checksum}, nil).Once()
+
+	app := newUploadApp(client, repo)
+	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", content, "req-cache"))
+	require.NoError(t, err)
+
+	assert.Equal(t, fiber.StatusConflict, resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	assertProblemBody(t, string(body), fiber.StatusConflict, "CONFLICT", "conflict", "el documento ya existe")
+	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUploadPDF_ChecksumLookupFailureFailsClosed(t *testing.T) {
+	client := new(MockExtractionClient)
+	repo := new(MockPersistenceRepository)
+	repo.On("FindByChecksum", mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, services.ErrDependencyUnavailable).Once()
+
+	app := newUploadApp(client, repo)
+	resp, err := app.Test(uploadRequest(t, "file", "documento.pdf", []byte("%PDF-test"), "req-lookup"))
+	require.NoError(t, err)
+
+	assert.Equal(t, fiber.StatusServiceUnavailable, resp.StatusCode)
+	body, _ := io.ReadAll(resp.Body)
+	assertProblemBody(t, string(body), fiber.StatusServiceUnavailable, "DEPENDENCY_UNAVAILABLE", "dependency-unavailable", "una dependencia no está disponible")
+	client.AssertNotCalled(t, "Extract", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything, mock.Anything)
+}
+
 // TestUploadPDF_Conflict: el 409 anti-TOCTOU de Persistence se propaga como 409 global, nunca 500.
 func TestUploadPDF_Conflict(t *testing.T) {
 	client := new(MockExtractionClient)
@@ -80,6 +126,7 @@ func TestUploadPDF_Conflict(t *testing.T) {
 		Return(validC1Result(), nil)
 
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	repo.On("Save", mock.Anything, mock.Anything, mock.Anything).Return(nil, services.ErrConflict)
 
 	app := newUploadApp(client, repo)
@@ -99,6 +146,7 @@ func TestUploadPDF_PropagatesRequestID(t *testing.T) {
 		Return(validC1Result(), nil)
 
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	repo.On("Save", mock.Anything, mock.Anything, mock.Anything).
 		Return(&services.Document{ID: "doc-1", Filename: "a.pdf", ExtractedText: "texto", Checksum: "sum-1"}, nil)
 
@@ -128,6 +176,7 @@ func TestUploadPDF_Timeout(t *testing.T) {
 		Return(nil, context.DeadlineExceeded)
 
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	app := newUploadApp(client, repo)
 
 	start := time.Now()
@@ -150,6 +199,7 @@ func TestUploadPDF_NetworkTimeout(t *testing.T) {
 		Return(nil, &net.DNSError{IsTimeout: true, Err: "i/o timeout"})
 
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	app := newUploadApp(client, repo)
 	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-nettimeout"))
 	require.NoError(t, err)
@@ -181,6 +231,7 @@ func TestUploadPDF_UpstreamError(t *testing.T) {
 		Return(nil, errors.New("extraction upstream: connection refused"))
 
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	app := newUploadApp(client, repo)
 	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-err"))
 	require.NoError(t, err)
@@ -197,6 +248,7 @@ func TestUploadPDF_InvalidContract(t *testing.T) {
 		Return(&services.ExtractionResult{Content: "", PageCount: 0}, nil)
 
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	app := newUploadApp(client, repo)
 	resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-contrato"))
 	require.NoError(t, err)
@@ -213,6 +265,7 @@ func TestUploadPDF_PersistenceError(t *testing.T) {
 		Return(validC1Result(), nil)
 
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	repo.On("Save", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, errors.New("persistence upstream: connection refused"))
 
@@ -238,6 +291,7 @@ func TestUploadPDF_RequestIDHeaderThroughHTTPClient(t *testing.T) {
 
 	client := services.NewHTTPExtractionClient(upstream.URL, "", 5*time.Second)
 	repo := new(MockPersistenceRepository)
+	expectChecksumMiss(repo)
 	repo.On("Save", mock.Anything, mock.Anything, mock.MatchedBy(func(d *services.Document) bool {
 		return d.Filename == "e2e.pdf" && d.ExtractedText == "ok" && d.Checksum == "sum-e2e"
 	})).Return(&services.Document{ID: "doc-e2e", Filename: "e2e.pdf", ExtractedText: "ok", Checksum: "sum-e2e"}, nil)
@@ -269,7 +323,7 @@ func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {
 			name: "503 con Retry-After se propaga con el header",
 			upstream: func(w http.ResponseWriter) {
 				w.Header().Set("Content-Type", "application/problem+json")
-				w.Header().Set("Retry-After", "7")
+				w.Header().Set("Retry-After", "1")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(`{"type":"urn:pdf-extractext:service-overloaded","title":"Servicio saturado","status":503,"detail":"Servicio saturado. Reintente más tarde.","code":"SERVICE_OVERLOADED"}`))
 			},
@@ -277,7 +331,7 @@ func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {
 			wantCode:       "SERVICE_OVERLOADED",
 			wantURN:        "service-overloaded",
 			wantDetail:     "Servicio saturado. Reintente más tarde.",
-			wantRetryAfter: "7",
+			wantRetryAfter: "1",
 		},
 		{
 			name: "422 INVALID_PDF_CONTENT se propaga tal cual",
@@ -314,9 +368,10 @@ func TestUploadPDF_UpstreamPropagation_E2E(t *testing.T) {
 
 			client := services.NewHTTPExtractionClient(upstream.URL, "", 5*time.Second)
 			repo := new(MockPersistenceRepository)
+			expectChecksumMiss(repo)
 			app := newUploadApp(client, repo)
 
-			resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-prop"))
+			resp, err := app.Test(uploadRequest(t, "file", "doc.pdf", []byte("%PDF-test"), "req-prop"), 5000)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 

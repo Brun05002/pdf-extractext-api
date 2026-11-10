@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,6 +81,47 @@ func TestFindByID_NotFound(t *testing.T) {
 
 	_, err := client.FindByID(context.Background(), "req-1", "inexistente")
 	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestFindByChecksum_OK(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "/documents/by-checksum/ab", r.URL.Path)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(Document{ID: "doc-123", Filename: "a.pdf", Checksum: "ab"})
+	}))
+
+	doc, err := client.FindByChecksum(context.Background(), "req-1", "ab")
+	require.NoError(t, err)
+	assert.Equal(t, "doc-123", doc.ID)
+}
+
+func TestFindByChecksum_NotFound(t *testing.T) {
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+
+	_, err := client.FindByChecksum(context.Background(), "req-1", strings.Repeat("a", 64))
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestSave_RetriesServiceUnavailable(t *testing.T) {
+	var calls atomic.Int32
+	client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(Document{ID: "doc-retry"})
+	}))
+
+	saved, err := client.Save(context.Background(), "req-1", &Document{Filename: "a.pdf"})
+	require.NoError(t, err)
+	assert.Equal(t, "doc-retry", saved.ID)
+	assert.Equal(t, int32(2), calls.Load())
 }
 
 func TestFindAll_OK(t *testing.T) {

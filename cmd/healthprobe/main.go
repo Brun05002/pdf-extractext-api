@@ -5,8 +5,10 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -15,14 +17,14 @@ func main() {
 }
 
 func run() int {
-	port := os.Getenv("PORT")
+	port := strings.TrimPrefix(strings.TrimSpace(os.Getenv("PORT")), ":")
 	if port == "" {
-		port = ":8000"
+		port = "8000"
 	}
 
 	client := &http.Client{Timeout: 3 * time.Second}
 	//nolint:gosec // URL local fija; solo el puerto viene de PORT.
-	resp, err := client.Get("http://127.0.0.1" + port + "/")
+	resp, err := client.Get("http://" + net.JoinHostPort("127.0.0.1", port) + "/")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "healthprobe: %v\n", err)
 		return 1

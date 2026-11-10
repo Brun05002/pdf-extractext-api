@@ -26,6 +26,12 @@ y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
   `PERSISTENCE_HOST` como header `Host`, igual que Extraction.
 - Documentación de variables, flujo de registro, health gate y KV; cobertura
   del paquete `internal/consul` por encima del 80 %.
+- SAGA de `/upload-pdf`: spool temporal con SHA-256, precheck por checksum en
+  Persistence y fallo cerrado si la consulta no está disponible.
+- Reintentos acotados (máximo 3, con `Retry-After`) para cuerpos rebobinables
+  en Extraction y para Persistence; `/extract` mantiene un único intento.
+- Tag `rate-limit@file` en el registro de Consul y puerto único `PORT` para el
+  listener y el health check, eliminando `SERVICE_PORT`.
 
 ### Changed
 

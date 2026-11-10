@@ -2,11 +2,12 @@ openapi: 3.0.3
 
 info:
   title: PDF ExtracText API
-  version: 1.3.0
+  version: 1.4.0
   description: |
     Microservicio orquestador del Proyecto Cabras. Recibe archivos PDF vía
     multipart/form-data, los reenvía en streaming al microservicio de
-    extracción y devuelve el texto extraído al cliente.
+    extracción y, en `/upload-pdf`, ejecuta una SAGA con precheck de checksum
+    antes de persistir.
 
     Todos los errores siguen RFC 9457 (`application/problem+json`).
     El header `X-Request-ID` se propaga a los servicios internos para
@@ -42,7 +43,8 @@ paths:
         Los 4xx y el 503 del extractor se propagan tal cual; un fallo de
         red/timeout o un 500 del extractor se responde 502. Una respuesta
         incompleta del extractor (`content` vacío o `page_count` 0) también
-        se responde 502: no es un C1 válido.
+        se responde 502: no es un C1 válido. Este endpoint no reintenta para
+        preservar el streaming puro.
       operationId: extractPdf
       tags:
         - extraction
@@ -78,16 +80,19 @@ paths:
     post:
       summary: Sube un PDF, extrae su texto y lo persiste
       description: |
-        Recibe un archivo PDF, lo reenvía al microservicio de extracción
-        bajo un timeout estricto de 30 segundos y persiste el resultado en
-        el microservicio de persistencia (`{filename, extracted_text,
-        checksum}`, contrato C2). El checksum es único: un PDF ya cargado
-        se rechaza con 409 Conflict.
-        El archivo se procesa en streaming; su tamaño máximo está limitado
-        por `MAX_FILE_SIZE_MB` (16 MB por defecto).
-        Los 4xx y el 503 del extractor se propagan tal cual (con su
-        `Retry-After` en el 503); solo un fallo de red/timeout o un 500
-        del extractor se responde como 502.
+        Recibe un archivo PDF, lo guarda en un temporal bajo `/tmp` mientras
+        calcula su SHA-256 y consulta Persistence por checksum. Si ya existe,
+        responde 409 sin extraer. Si no existe, rebobina el temporal y lo
+        reenvía al extractor; solo este cuerpo es rebobinable, por lo que los
+        reintentos ante red, 503 o 429 (máximo 3, respetando `Retry-After`)
+        aplican aquí y no en `/extract`. Luego persiste
+        `{filename, extracted_text, checksum}` (contrato C2) y elimina el
+        temporal. La SAGA completa tiene un timeout de 30 segundos.
+        El tamaño máximo está limitado por `MAX_FILE_SIZE_MB` (16 MB por
+        defecto). Si el precheck de checksum falla, la API falla cerrado y no
+        invoca al extractor. Los 4xx y el 503 del extractor se propagan tal
+        cual (con su `Retry-After` en el 503); solo un fallo de red/timeout o
+        un 500 del extractor se responde como 502.
       operationId: uploadPdf
       tags:
         - extraction
@@ -285,7 +290,7 @@ components:
             detail: documento no encontrado
             code: NOT_FOUND
     Conflict:
-      description: Conflicto con el recurso (índice único anti-TOCTOU).
+      description: Conflicto con el recurso (precheck de checksum o índice único anti-TOCTOU).
       content:
         application/problem+json:
           schema:

@@ -78,6 +78,13 @@ func (g *gatedPersistence) FindByID(ctx context.Context, requestID, id string) (
 	return g.next.FindByID(ctx, requestID, id)
 }
 
+func (g *gatedPersistence) FindByChecksum(ctx context.Context, requestID, checksum string) (*Document, error) {
+	if err := g.guard.allow(ctx); err != nil {
+		return nil, err
+	}
+	return g.next.FindByChecksum(ctx, requestID, checksum)
+}
+
 func (g *gatedPersistence) FindAll(ctx context.Context, requestID string) ([]*Document, error) {
 	if err := g.guard.allow(ctx); err != nil {
 		return nil, err

@@ -39,6 +39,14 @@ func (m *MockPersistenceRepository) FindByID(ctx context.Context, requestID, id 
 	return nil, args.Error(1)
 }
 
+func (m *MockPersistenceRepository) FindByChecksum(ctx context.Context, requestID, checksum string) (*services.Document, error) {
+	args := m.Called(ctx, requestID, checksum)
+	if result, ok := args.Get(0).(*services.Document); ok {
+		return result, args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (m *MockPersistenceRepository) FindAll(ctx context.Context, requestID string) ([]*services.Document, error) {
 	args := m.Called(ctx, requestID)
 	if result, ok := args.Get(0).([]*services.Document); ok {
