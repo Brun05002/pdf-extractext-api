@@ -51,7 +51,7 @@ func (h *documentsHandler) update(c *fiber.Ctx) error {
 	}
 
 	var doc services.Document
-	if err := c.BodyParser(&doc); err != nil {
+	if err = c.BodyParser(&doc); err != nil {
 		return problem(c, fiber.StatusBadRequest, "INVALID_REQUEST", "el cuerpo de la petición no es un JSON válido")
 	}
 	if strings.TrimSpace(doc.Filename) == "" {
