@@ -14,7 +14,7 @@ import (
 )
 
 // consulTokenHeader es el header ACL que exige Consul cuando hay token configurado.
-const consulTokenHeader = "X-Consul-Token"
+const consulTokenHeader = "X-Consul-Token" //nolint:gosec // nombre de cabecera, no credencial.
 
 // Client es un cliente mínimo de Consul construido solo con net/http.
 type Client struct {

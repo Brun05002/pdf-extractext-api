@@ -47,7 +47,7 @@ func httpServerHandler(t *testing.T, expected string) http.HandlerFunc {
 		require.Equal(t, expected, string(body), "el stream debe llegar íntegro y sin buffers fijos")
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"filename":"informe.pdf","extracted_text":"texto extraido","checksum":"abc123","content":"texto extraido","page_count":3}`))
+		_, _ = w.Write([]byte(`{"filename":"informe.pdf","extracted_text":"texto extraido","checksum":"abc123","content":"texto extraido","page_count":3}`))
 	}
 }
 
@@ -55,7 +55,7 @@ func TestExtractionClient_SetsConfiguredHost(t *testing.T) {
 	var gotHost string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHost = r.Host
-		w.Write([]byte(`{"content":"texto","page_count":1}`))
+		_, _ = w.Write([]byte(`{"content":"texto","page_count":1}`))
 	}))
 	defer server.Close()
 
@@ -90,7 +90,7 @@ func TestExtractionClient_ClosesPipeOnRequestConstructionError(t *testing.T) {
 
 func TestExtractionClient_ClosesPipeOnCanceledContext(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"content":"x","page_count":1}`))
+		_, _ = w.Write([]byte(`{"content":"x","page_count":1}`))
 	}))
 	defer server.Close()
 
@@ -123,7 +123,7 @@ func assertNoExtractProducerGoroutine(t *testing.T) {
 func TestExtractionClient_Timeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond) // upstream lento
-		w.Write([]byte(`{"content":"x","page_count":1}`))
+		_, _ = w.Write([]byte(`{"content":"x","page_count":1}`))
 	}))
 	defer server.Close()
 

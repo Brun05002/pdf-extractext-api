@@ -11,21 +11,27 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = ":8000"
 	}
 
 	client := &http.Client{Timeout: 3 * time.Second}
+	//nolint:gosec // URL local fija; solo el puerto viene de PORT.
 	resp, err := client.Get("http://127.0.0.1" + port + "/")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "healthprobe: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "healthprobe: status %d\n", resp.StatusCode)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

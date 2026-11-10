@@ -28,13 +28,17 @@ const (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	// Logging estructurado JSON por defecto para todo el proceso.
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 	cfg, err := core.LoadConfig()
 	if err != nil {
 		slog.Error("configuración inválida", "error", err)
-		os.Exit(1)
+		return 1
 	}
 
 	var consulClient *consul.Client
@@ -77,14 +81,14 @@ func main() {
 
 	// SIGINT/SIGTERM: drenar requests en vuelo antes de salir (PID 1 del contenedor).
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	// Se binda el listener antes de registrarse para que el health check no falle al arrancar.
 	ln, err := net.Listen("tcp", cfg.Port)
 	if err != nil {
 		slog.Error("no se pudo abrir el puerto", "puerto", cfg.Port, "error", err)
-		os.Exit(1)
+		return 1
 	}
+	defer stop()
 
 	go func() {
 		slog.Info("iniciando servidor", "puerto", cfg.Port)
@@ -106,13 +110,14 @@ func main() {
 		// 5s de drenaje tras deregistrar + 45s de shutdown = 50s < stop_grace_period (55s).
 		if err := consul.Shutdown(consulClient, reg.ID, shutdownDrain, shutdownTimeout, app); err != nil {
 			slog.Error("error durante el apagado", "error", err)
-			os.Exit(1)
+			return 1
 		}
 	} else if err := app.ShutdownWithTimeout(shutdownTimeout); err != nil {
 		slog.Error("error durante el apagado", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	slog.Info("servidor detenido correctamente")
+	return 0
 }
 
 // loadConsulKV aplica la configuración remota con fail-open: un error no impide arrancar.
